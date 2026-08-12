@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1565c0">
+<title>Kuthond Survey Application</title>
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="./manifest.json">
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Kuthond Survey Application</h1>
+    <div class="subtitle">Offline data collection</div>
+  </header>
+
+  <main>
+    <section id="loginCard" class="card">
+      <h2>Login</h2>
+      <label for="loginUserId">User ID</label>
+      <input id="loginUserId" autocomplete="username" placeholder="Enter User ID">
+
+      <label for="loginPassword">Password</label>
+      <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Enter Password">
+
+      <button id="loginBtn" class="primary">LOGIN</button>
+      <div id="loginStatus" class="status"></div>
+    </section>
+
+    <div id="appContent" class="hidden">
+    <section class="card">
+      <div class="logged-user">
+        Logged in as: <b id="loggedUserName"></b>
+        <button id="dashboardBtn" class="logout hidden">DASHBOARD</button>
+        <button id="correctionBtn" class="logout hidden">CORRECTION</button>
+        <button id="adminBtn" class="logout hidden">ADMIN</button>
+        <button id="homeBtn" class="logout">HOME</button>
+        <button id="logoutBtn" class="logout">LOGOUT</button>
+      </div>
+    </section>
+
+    <section id="masterSetupCard" class="card master-setup-card hidden">
+      <div class="master-setup-title">
+        <h2>Master Data Setup</h2>
+        <span id="masterSetupBadge" class="master-setup-badge loading">LOADING</span>
+      </div>
+      <p id="masterSetupText">Consumer master data is being prepared for offline use. Please keep the app open.</p>
+      <div class="master-setup-track"><div id="masterSetupBar" class="master-setup-bar"></div></div>
+      <div id="masterSetupCount" class="master-setup-count">0 / 190,081</div>
+      <button id="masterSetupContinueBtn" class="primary hidden" type="button">CONTINUE</button>
+    </section>
+
+    <section id="surveyTypeCard" class="card">
+      <h2>Door-to-Door Survey</h2>
+      <p class="muted">Select the type of premises you are surveying.</p>
+      <div class="survey-type-grid">
+        <button id="existingSurveyBtn" class="survey-type-btn" type="button">
+          EXISTING CONSUMER
+          <small>Consumer is present in the database</small>
+        </button>
+        <button id="newSurveyBtn" class="survey-type-btn" type="button">
+          CONNECTION NOT IN DATABASE
+          <small>Not ledgerised / theft connection</small>
+        </button>
+      </div>
+    </section>
+
+    <section id="existingSearchCard" class="card hidden">
+      <h2>Existing Consumer</h2>
+
+      <label for="searchType">Search By</label>
+      <select id="searchType">
+        <option value="ACCOUNT">Account ID</option>
+        <option value="METER">Meter Number</option>
+      </select>
+
+      <label for="accountId">Search Value</label>
+      <div class="search-row">
+        <input id="accountId" autocomplete="off" placeholder="Enter account ID">
+        <button id="searchBtn" type="button">SEARCH</button>
+      </div>
+      <div id="searchStatus" class="status"></div>
+    </section>
+
+    <section id="consumerCard" class="card hidden">
+      <h2>Consumer Details</h2>
+      <div class="details">
+        <div><span>Account ID</span><b id="dAcct"></b></div>
+        <div><span>Name</span><b id="dName"></b></div>
+        <div><span>Father/Husband</span><b id="dFather"></b></div>
+        <div><span>Address</span><b id="dAddress"></b></div>
+        <div><span>Supply Type</span><b id="dSupply"></b></div>
+        <div><span>Sanctioned Load</span><b id="dLoad"></b></div>
+        <div><span>SDO Code</span><b id="dSdo"></b></div>
+        <div><span>Connection Status</span><b id="dConnectionStatus" class="connection-status-value"></b></div>
+        <div><span>Meter Number</span><b id="dMeterNo"></b></div>
+        <div><span>Current Reading</span><b id="dCurrentReading"></b></div>
+        <div><span>Total Outstanding</span><b id="dOutstanding"></b></div>
+      </div>
+      <div id="duplicateWarning" class="duplicate-warning hidden"></div>
+      <div id="outstandingAlert" class="outstanding-alert hidden" role="alert">
+        <div class="outstanding-alert-title">⚠️ महत्वपूर्ण सूचना</div>
+        <div>उपभोक्ता को सूचित करें कि उनकी बकाया राशि ₹5,000 से अधिक है। कृपया बकाया विद्युत बिल का भुगतान करने हेतु कहें, अन्यथा नियमानुसार विद्युत आपूर्ति विच्छेदित की जा सकती है।</div>
+      </div>
+    </section>
+
+    <section id="entryCard" class="card hidden">
+      <h2>Survey Details</h2>
+
+      <label for="village">Correct Village</label>
+      <select id="village">
+        <option value="">Select village</option>
+        <option value="__NOT_IN_LIST__">NOT IN THE LIST</option>
+      </select>
+
+      <label for="meterCondition">Meter Condition</label>
+      <select id="meterCondition">
+        <option value="">Select meter condition</option>
+        <option value="OK">OK</option>
+        <option value="DAMAGED">DAMAGED</option>
+        <option value="NOT INSTALLED">NOT INSTALLED</option>
+      </select>
+
+      <label for="acInstalled">AC Installed</label>
+      <select id="acInstalled">
+        <option value="">Select</option>
+        <option value="YES">YES</option>
+        <option value="NO">NO</option>
+      </select>
+
+      <label for="mobile">Mobile Number</label>
+      <input id="mobile" inputmode="numeric" maxlength="10" autocomplete="tel"
+             placeholder="10 digit mobile number">
+
+      <div class="check-row">
+        <label><input id="houseLocked" type="checkbox"> HOUSE LOCKED</label>
+        <label><input id="mobileRefused" type="checkbox"> CONSUMER REFUSED TO PROVIDE MOBILE</label>
+      </div>
+
+      <button id="saveBtn" class="primary" type="button">SUBMIT SURVEY</button>
+      <button id="backToSurveyTypeBtn" class="secondary" type="button">BACK TO HOME</button>
+      <div id="saveStatus" class="status"></div>
+    </section>
+
+    <section id="newSurveyCard" class="card hidden">
+      <h2>Connection Not in Database</h2>
+
+      <label for="newConnectionType">Connection Status</label>
+      <select id="newConnectionType">
+        <option value="">Select</option>
+        <option value="NOT LEDGERISED">NOT LEDGERISED CONNECTION</option>
+        <option value="THEFT CONNECTION">THEFT CONNECTION</option>
+      </select>
+
+      <label for="newName">Consumer / Occupant Name</label>
+      <input id="newName" placeholder="Enter name">
+
+      <label for="newFather">Father/Husband Name</label>
+      <input id="newFather" placeholder="Enter father/husband name">
+
+      <label for="newVillage">Village</label>
+      <select id="newVillage">
+        <option value="">Select village</option>
+        <option value="__NOT_IN_LIST__">NOT IN THE LIST</option>
+      </select>
+
+      <label for="newAddress">Complete Address</label>
+      <textarea id="newAddress" rows="3" placeholder="Enter complete address"></textarea>
+
+      <label for="newMobile">Mobile Number</label>
+      <input id="newMobile" inputmode="numeric" maxlength="10" placeholder="10 digit mobile number">
+
+      <label for="newMeterInstalled">Meter Installed</label>
+      <select id="newMeterInstalled">
+        <option value="">Select</option>
+        <option value="YES">YES</option>
+        <option value="NO">NO</option>
+      </select>
+
+      <label for="newMeterNo">Meter Number</label>
+      <input id="newMeterNo" placeholder="Enter meter number">
+
+      <label for="newCurrentReading">Current Reading</label>
+      <input id="newCurrentReading" inputmode="decimal" placeholder="Enter current reading">
+
+      <label for="newMeterCondition">Meter Condition</label>
+      <select id="newMeterCondition">
+        <option value="">Select</option>
+        <option value="OK">OK</option>
+        <option value="DAMAGED">DAMAGED</option>
+        <option value="NOT INSTALLED">NOT INSTALLED</option>
+      </select>
+
+      <label for="newConnectedLoad">Connected Load</label>
+      <input id="newConnectedLoad" placeholder="Enter connected load">
+
+      <label for="newAcInstalled">AC Installed</label>
+      <select id="newAcInstalled">
+        <option value="">Select</option>
+        <option value="YES">YES</option>
+        <option value="NO">NO</option>
+      </select>
+
+      <label for="newRemarks">Remarks</label>
+      <textarea id="newRemarks" rows="3" placeholder="Enter remarks"></textarea>
+
+      <button id="saveNewBtn" class="primary" type="button">SUBMIT SURVEY</button>
+      <button id="backFromNewBtn" class="secondary" type="button">BACK TO HOME</button>
+      <div id="newSaveStatus" class="status"></div>
+    </section>
+
+    
+<section id="myCollectionCard" class="card collection-card">
+  <div class="collection-header">
+    <div><h2>My Collection</h2><div id="collectionDateLabel" class="collection-date-label"></div></div>
+    <button type="button" id="refreshCollectionBtn" class="secondary-btn collection-refresh">↻ REFRESH</button>
+  </div>
+  <div class="collection-today-title">Today's Collection</div>
+  <div class="collection-stats">
+    <div class="collection-stat"><strong id="todayExistingCount">0</strong><span>Existing Today</span></div>
+    <div class="collection-stat"><strong id="todayNewCount">0</strong><span>Not in Data Today</span></div>
+    <div class="collection-stat"><strong id="todayTotalCount">0</strong><span>Total Today</span></div>
+    <div class="collection-stat"><strong id="todayPendingCount">0</strong><span>Pending Upload</span></div>
+  </div>
+  <div class="personal-summary-title">Your Personal Total</div>
+  <div id="personalCollectionSummary" class="personal-summary">
+    <div class="personal-summary-row"><span>Existing Consumer</span><b>0</b></div>
+    <div class="personal-summary-row"><span>Not in Data</span><b>0</b></div>
+    <div class="personal-summary-row total"><span>Total Surveyed</span><b>0</b></div>
+    <div class="personal-summary-row pending"><span>Pending Upload</span><b>0</b></div>
+  </div>
+</section>
+
+<section id="uploadCard" class="card">
+      <div class="stats">
+        <div><b id="savedCount">0</b><span>Saved</span></div>
+        <div><b id="pendingCount">0</b><span>Pending Upload</span></div>
+      </div>
+      <button id="uploadBtn" class="upload">⬆ UPLOAD TO SERVER</button>
+      <button id="syncStatusBtn" class="secondary" type="button">↻ CHECK UPLOAD STATUS</button>
+      <button id="exportBtn" class="secondary">EXPORT LOCAL DATA</button>
+      <div id="uploadStatus" class="status"></div>
+      <div id="syncStatus" class="status"></div>
+
+
+<section id="dashboardCard" class="card hidden">
+  <div class="dashboard-title">
+    <h2>Collection Dashboard</h2>
+    <div>
+      <button id="exportReportBtn" class="small-btn">EXPORT REPORT</button>
+      <button id="refreshDashboardBtn" class="small-btn">REFRESH</button>
+    </div>
+  </div>
+
+  <div class="dashboard-summary">
+    <div><b id="dashTotal">0</b><span>Total Entries</span></div>
+    <div><b id="dashUsers">0</b><span>Users</span></div>
+    <div><b id="dashVillages">0</b><span>Villages</span></div>
+  </div>
+
+  <div class="dashboard-filters">
+    <label for="dashFromDate">From Date</label>
+    <input id="dashFromDate" type="date">
+
+    <label for="dashToDate">To Date</label>
+    <input id="dashToDate" type="date">
+
+    <label for="dashUserFilter">User</label>
+    <select id="dashUserFilter">
+      <option value="">All Users</option>
+    </select>
+
+    <label for="dashVillageFilter">Village</label>
+    <select id="dashVillageFilter">
+      <option value="">All Villages</option>
+    </select>
+
+    <button id="todayDashboardBtn" class="primary" type="button">TODAY</button>
+    <button id="applyDashboardFilterBtn" class="primary">APPLY FILTER</button>
+    <button id="clearDashboardFilterBtn" class="small-btn">CLEAR</button>
+  </div>
+
+  
+<div id="collectionSummary" class="collection-summary">
+  <h3>Collection Summary</h3>
+  <div class="summary-grid">
+    <div><b id="sumTotal">0</b><span>Total Consumers</span></div>
+    <div><b id="sumMeterOk">0</b><span>Meter OK</span></div>
+    <div><b id="sumMeterDamaged">0</b><span>Meter Damaged</span></div>
+    <div><b id="sumMeterNI">0</b><span>Meter Not Installed</span></div>
+    <div><b id="sumAcYes">0</b><span>AC Installed – YES</span></div>
+    <div><b id="sumAcNo">0</b><span>AC Installed – NO</span></div>
+  </div>
+</div>
+<h3>User-wise Collection</h3>
+  <div id="userReport" class="report-table">Loading...</div>
+
+  <h3>Village-wise Collection</h3>
+  <div id="villageReport" class="report-table">Loading...</div>
+
+  <h3>Meter Condition</h3>
+  <div id="meterReport" class="report-table">Loading...</div>
+
+  <h3>AC Installed</h3>
+  <div id="acReport" class="report-table">Loading...</div>
+  <div id="exportStatus" class="status"></div>
+</section>
+
+<section id="correctionCard" class="card hidden">
+  <div class="dashboard-title">
+    <h2>Data Correction</h2>
+  </div>
+
+  <label for="correctionAccountId">Account ID</label>
+  <div class="search-line">
+    <input id="correctionAccountId" placeholder="Enter Account ID">
+    <button id="findCorrectionBtn" class="primary">SEARCH</button>
+  </div>
+
+  <div id="correctionResult" class="hidden">
+    <div class="correction-info">
+      <div><span>Consumer</span><b id="corrConsumerName"></b></div>
+      <div><span>Account ID</span><b id="corrAccount"></b></div>
+      <div><span>Original User</span><b id="corrOriginalUser"></b></div>
+      <div><span>Original Date</span><b id="corrOriginalDate"></b></div>
+    </div>
+
+    <label for="corrVillage">Village</label>
+    <select id="corrVillage">
+      <option value="">Select village</option>
+    </select>
+
+    <label for="corrMeterCondition">Meter Condition</label>
+    <select id="corrMeterCondition">
+      <option value="">Select</option>
+      <option value="OK">OK</option>
+      <option value="DAMAGED">DAMAGED</option>
+      <option value="NOT INSTALLED">NOT INSTALLED</option>
+    </select>
+
+    <label for="corrAcInstalled">AC Installed</label>
+    <select id="corrAcInstalled">
+      <option value="">Select</option>
+      <option value="YES">YES</option>
+      <option value="NO">NO</option>
+    </select>
+
+    <label for="corrMobile">Mobile Number</label>
+    <input id="corrMobile" inputmode="numeric" maxlength="10" placeholder="10 digit mobile number">
+
+    <button id="saveCorrectionBtn" class="primary">SAVE CORRECTION</button>
+    <div id="correctionStatus" class="status"></div>
+  </div>
+
+  <div id="correctionSearchStatus" class="status"></div>
+</section>
+<section id="adminCard" class="card hidden">
+  <h2>Admin - User Management</h2>
+
+  <div class="admin-form">
+    <label for="newUserId">User ID</label>
+    <input id="newUserId" placeholder="e.g. MR001">
+
+    <label for="newUserName">User Name</label>
+    <input id="newUserName" placeholder="Enter user's name">
+
+    <label for="newUserPassword">Password</label>
+    <input id="newUserPassword" type="password" placeholder="Set password">
+
+    <button id="createUserBtn" class="primary">CREATE USER</button>
+    <div id="adminStatus" class="status"></div>
+  </div>
+
+  <h3>Users</h3>
+  <div id="usersTable" class="users-table">Loading...</div>
+</section>
+    
+<div id="confirmModal" class="modal hidden">
+  <div class="modal-box">
+    <h2 id="confirmTitle">Confirm Survey</h2>
+    <div id="confirmDetails" class="confirm-details"></div>
+    <div class="confirm-warning">Please verify the information before submitting.</div>
+    <div class="confirm-actions">
+      <button id="cancelConfirmBtn" class="secondary" type="button">CANCEL</button>
+      <button id="confirmSaveBtn" class="primary" type="button">CONFIRM & SAVE</button>
+    </div>
+  </div>
+</div>
+</div>
+  </main>
+</div>
+<script src="app.js?v=15.1.1-pwa-ui1"></script>
+<script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));}</script>
+</body>
+</html>
