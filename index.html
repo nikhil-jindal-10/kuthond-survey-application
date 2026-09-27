@@ -1,10 +1,15 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" translate="no">
 <head>
 <meta charset="utf-8">
+<meta name="google" content="notranslate">
+  
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#1565c0">
-<title>Kuthond Field Work</title>
+<title>Fieldwork App</title>
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+
 <link rel="stylesheet" href="style.css">
 <link rel="manifest" href="./manifest.json">
 
@@ -13,6 +18,42 @@
 </style>
 
 <style>
+
+.search-results {
+  margin-top: 12px;
+  max-height: 500px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;}
+.search-result-card {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: 0.15s;}
+.search-result-card:hover {
+  background: #eef5ff;
+  border-color: #1976d2;}
+.search-result-card:active {
+  transform: scale(0.99);}
+.search-result-card div {
+  margin: 3px 0;
+  line-height: 1.35;}
+.search-result-card div:first-child {
+  font-size: 16px;
+  margin-bottom: 6px;}
+.search-result-card strong {
+  font-weight: 600;}
+.search-result-card::after {
+  content: "SELECT THIS CONSUMER →";
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1976d2;}
+
 .collection-four{grid-template-columns:repeat(4,minmax(0,1fr));}
 .collection-total-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;}
 .collection-total-row>div{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border:1px solid #e5e5e5;border-radius:8px;background:#fafafa;}
@@ -23,19 +64,118 @@
 .upload-summary-head{font-weight:700;background:#f7f7f7;}
 .upload-summary-grid b{text-align:center;}
 .upload-grand-total{display:grid;grid-template-columns:1fr auto 1fr auto;gap:8px;align-items:center;padding:10px 12px;margin-bottom:12px;background:#f7f7f7;border-radius:8px;}
+
+
 .dashboard-filters{margin-top:12px;}
+
+
+.dashboard-filter-actions{
+  display:grid;
+  grid-column:1 / -1;
+  gap:8px;
+  margin-top:4px;
+}
+
+.dashboard-filter-action-row{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+}
+
+.dashboard-load-btn{
+  width:100%;
+}
+
 .dashboard-section{margin-top:18px;}
-.dashboard-summary-box{border:1px solid #e5e5e5;border-radius:8px;overflow:hidden;background:#fff;}
-.dashboard-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:10px;}
-.dashboard-summary-grid>div{padding:12px 8px;text-align:center;border:1px solid #e5e5e5;border-radius:8px;background:#fafafa;}
-.dashboard-summary-grid b{display:block;font-size:20px;}
-.dashboard-summary-grid span{display:block;font-size:12px;margin-top:4px;}
-.substation-table,.dashboard-table-wrap{overflow-x:visible;}
-.substation-row{display:grid;grid-template-columns:minmax(82px,1.4fr) repeat(5,minmax(48px,1fr));gap:6px;padding:9px 6px;border-bottom:1px solid #eee;align-items:center;}
-.substation-row>div,.user-row>div{min-width:0;overflow-wrap:anywhere;}
-.substation-head{font-weight:700;background:#f7f7f7;font-size:12px;}
-.user-row{display:grid;grid-template-columns:minmax(70px,1.15fr) minmax(105px,1.45fr) repeat(5,minmax(45px,1fr));gap:5px;padding:9px 5px;border-bottom:1px solid #eee;align-items:center;}
-.user-head{font-weight:700;background:#f7f7f7;font-size:11px;}
+
+.dashboard-summary-box{
+  border:1px solid #e5e5e5;
+  border-radius:8px;
+  overflow:hidden;
+  background:#fff;
+}
+
+.dashboard-summary-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+  padding:10px;
+}
+
+.dashboard-summary-grid>div{
+  padding:12px 8px;
+  text-align:center;
+  border:1px solid #e5e5e5;
+  border-radius:8px;
+  background:#fafafa;
+}
+
+.dashboard-summary-grid b{
+  display:block;
+  font-size:20px;
+}
+
+.dashboard-summary-grid span{
+  display:block;
+  font-size:12px;
+  margin-top:4px;
+}
+
+.substation-table,
+.dashboard-table-wrap{
+  overflow:visible;
+}
+
+.substation-row{
+  display:grid;
+  grid-template-columns:minmax(65px,1.35fr) repeat(5,minmax(0,1fr));
+  gap:4px;
+  padding:8px 5px;
+  border-bottom:1px solid #eee;
+  align-items:center;
+  font-size:clamp(8px,2.8vw,13px);
+}
+
+.substation-row>div,
+.user-row>div{
+  min-width:0;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+
+.substation-head{
+  font-weight:700;
+  background:#f7f7f7;
+  font-size:clamp(8px,2.6vw,12px);
+}
+
+.substation-total-row{
+  font-weight:700;
+  background:#f7f7f7;
+  border-top:2px solid #ddd;
+}
+
+.user-row{
+  display:grid;
+  grid-template-columns:minmax(55px,1.15fr) minmax(70px,1.35fr) repeat(5,minmax(0,1fr));
+  gap:3px;
+  padding:8px 4px;
+  border-bottom:1px solid #eee;
+  align-items:center;
+  font-size:clamp(8px,2.7vw,13px);
+}
+
+.user-head{
+  font-weight:700;
+  background:#f7f7f7;
+  font-size:clamp(8px,2.5vw,11px);
+}
+
+.substation-row>div:not(:first-child),
+.user-row>div:nth-child(n+3){
+  text-align:center;
+}
+
 .summary-response-row{display:flex;justify-content:space-between;padding:9px 12px;border-bottom:1px solid #eee;}
 .summary-response-row:last-child{border-bottom:0;}
 #phoneResponses{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:10px;}
@@ -46,21 +186,80 @@
 .dashboard-empty-state{padding:18px 12px;border:1px dashed #d5d5d5;border-radius:8px;background:#fafafa;text-align:center;color:#666;}
 .dashboard-table-title{margin:0 0 8px;font-size:16px;}
 .dashboard-table-gap{margin-top:14px;}
+
+
 @media(max-width:700px){
-  .collection-four,.dashboard-summary-five,.dashboard-activity-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
-  .collection-total-row{grid-template-columns:1fr;}
-  .dashboard-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
-  .substation-head,.user-head{display:none;}
-  .substation-row,.user-row{grid-template-columns:1fr;min-width:0;margin-bottom:8px;border:1px solid #e5e5e5;border-radius:8px;background:#fff;padding:8px;}
-  .substation-row>div,.user-row>div{min-width:0;display:block;padding:7px 4px;border-bottom:1px solid #f0f0f0;overflow-wrap:anywhere;word-break:break-word;}
-  .substation-row>div:last-child,.user-row>div:last-child{border-bottom:0;}
-  .substation-row>div::before,.user-row>div::before{content:attr(data-label);display:block;font-size:11px;color:#666;font-weight:600;margin-bottom:2px;}
-  #phoneResponses{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .collection-four,
+  .dashboard-summary-five,
+  .dashboard-activity-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+
+  .collection-total-row{
+    grid-template-columns:1fr;
+  }
+
+  .dashboard-summary-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+
+  .substation-row,
+  .user-row{
+    min-width:0;
+    margin-bottom:0;
+    border:0;
+    border-radius:0;
+    background:transparent;
+  }
+
+  .substation-row>div,
+  .user-row>div{
+    display:block;
+    padding:6px 2px;
+    border-bottom:1px solid #f0f0f0;
+    overflow-wrap:anywhere;
+    word-break:break-word;
+    line-height:1.2;
+  }
+
+  .substation-row>div:last-child,
+  .user-row>div:last-child{
+    border-bottom:0;
+  }
+
+  .substation-row>div::before,
+  .user-row>div::before{
+    display:none;
+  }
+
+  .substation-head,
+  .user-head{
+    display:grid;
+  }
+
+  #phoneResponses{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
 }
+
 @media(max-width:420px){
-  .dashboard-summary-grid{grid-template-columns:1fr 1fr;}
-  .substation-row,.user-row{grid-template-columns:1fr;}
+  .dashboard-summary-grid{
+    grid-template-columns:1fr 1fr;
+  }
+
+  .substation-row,
+  .user-row{
+    gap:2px;
+  }
+
+  .substation-row>div,
+  .user-row>div{
+    padding:5px 1px;
+  }
 }
+
+
+
 </style>
 
 <style>
@@ -69,119 +268,326 @@
 .admin-checkbox-item input{margin:0;}
 .admin-role-select{width:100%;}
 .admin-user-substation{overflow-wrap:anywhere;}
-.users-table .user-row{grid-template-columns:minmax(70px,1fr) minmax(100px,1.3fr) minmax(110px,1.4fr) minmax(65px,.8fr) minmax(55px,.7fr) minmax(70px,.8fr);}
+
+.users-table .user-row{
+  grid-template-columns:
+    minmax(70px,1fr)
+    minmax(100px,1.3fr)
+    minmax(90px,1fr)
+    minmax(100px,1.1fr)
+    minmax(110px,1.4fr)
+    minmax(65px,.8fr)
+    minmax(55px,.7fr)
+    minmax(70px,.8fr);
+}
+
 @media(max-width:700px){.admin-checkbox-grid{grid-template-columns:1fr;}.users-table .user-row{grid-template-columns:1fr;}}
+</style>
+
+
+
+
+<style>
+
+.app-header-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+}
+
+
+.language-switch-wrap{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  white-space:nowrap;
+  color:#fff;
+  font-size:12px;
+  font-weight:600;
+}
+
+.language-switch-btn{
+  border:1px solid rgba(255,255,255,.55);
+  background:rgba(255,255,255,.12);
+  color:#fff;
+  border-radius:8px;
+  padding:7px 12px;
+  font-size:13px;
+  font-weight:600;
+  cursor:pointer;
+  white-space:nowrap;
+}
+
+.language-switch-btn:hover{
+  background:rgba(255,255,255,.2);
+}
+
+.language-switch-btn:active{
+  transform:scale(.98);
+}
+
+@media(max-width:600px){
+  .app-header-row{
+    align-items:flex-start;
+  }
+
+  .language-switch-wrap{
+    flex-direction:column;
+    align-items:flex-end;
+    gap:4px;
+    font-size:11px;
+  }
+
+  .language-switch-btn{
+    padding:6px 10px;
+    font-size:12px;
+  }
+}
+  
+</style>
+
+<style>
+/* =========================================================
+   GLOBAL PROCESSING / LOADING OVERLAY
+   ========================================================= */
+.admin-scope-info{
+  grid-column:1 / -1;
+  padding:9px 11px;
+  border-radius:8px;
+  background:#f5f7fa;
+  border:1px solid #e1e5ea;
+  font-size:13px;
+  line-height:1.45;
+}
+
+.admin-scope-info.hidden{
+  display:none;
+}
+
+.admin-auto-scope{
+  opacity:.7;
+  cursor:default;
+}
+
+
+
+.global-loading-overlay{
+  position:fixed;
+  inset:0;
+  z-index:99999;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(15,23,42,.32);
+  backdrop-filter:blur(2px);
+}
+
+.global-loading-overlay.hidden{
+  display:none!important;
+}
+
+.global-loading-box{
+  width:min(360px,calc(100vw - 40px));
+  padding:24px 22px;
+  border-radius:14px;
+  background:#fff;
+  box-shadow:0 12px 40px rgba(0,0,0,.22);
+  text-align:center;
+}
+
+.global-loading-spinner{
+  width:38px;
+  height:38px;
+  margin:0 auto 14px;
+  border:4px solid #dbeafe;
+  border-top-color:#1565c0;
+  border-radius:50%;
+  animation:globalLoadingSpin .8s linear infinite;
+}
+
+@keyframes globalLoadingSpin{
+  to{
+    transform:rotate(360deg);
+  }
+}
+
+#globalLoadingTitle{
+  font-size:17px;
+  font-weight:700;
+  color:#1f2937;
+}
+
+#globalLoadingMessage{
+  margin-top:7px;
+  font-size:13px;
+  line-height:1.45;
+  color:#6b7280;
+}
 </style>
 
 </head>
 <body>
+
+<!-- Global processing indicator -->
+<div id="globalLoadingOverlay"
+     class="global-loading-overlay hidden"
+     aria-hidden="true">
+
+  <div class="global-loading-box">
+
+    <div class="global-loading-spinner"
+         aria-hidden="true"></div>
+
+    <div id="globalLoadingTitle">
+      Processing...
+    </div>
+
+    <div id="globalLoadingMessage">
+      Please wait, your request is being processed.
+    </div>
+
+  </div>
+
+</div>
+
 <div class="app">
+
   <header>
-    <h1>Kuthond Field Work</h1>
-    <div class="subtitle">Field operations and staff monitoring</div>
+
+    <div class="app-header-row">
+      <div>
+        <h1>Fieldwork App</h1>
+        <div class="subtitle">Field operations and staff monitoring</div>
+      </div>
+
+      <div class="language-switch-wrap">
+        <span id="languageSwitchLabel">Language / भाषा:</span>
+        <button id="languageSwitchBtn"
+                class="language-switch-btn"
+                type="button"
+                title="Switch Language">
+          हिंदी
+        </button>
+      </div>
+    </div>
   </header>
+
 
   <main>
     <section id="loginCard" class="card">
-      <h2>Login</h2>
-      <label for="loginUserId">User ID</label>
-      <input id="loginUserId" autocomplete="username" placeholder="Enter User ID">
+      <h2>Login(लॉगिन)</h2>
+      <label for="loginUserId">User ID(यूज़र आईडी)</label>
+      <input id="loginUserId" autocomplete="username" placeholder="Enter User ID(यूज़र आईडी दर्ज करे)">
 
-      <label for="loginPassword">Password</label>
-      <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Enter Password">
+      <label for="loginPassword">Password(पासवर्ड)</label>
+      <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Enter Password(पासवर्ड दर्ज करे)">
 
-      <button id="loginBtn" class="primary">LOGIN</button>
+      <button id="loginBtn" class="primary">LOGIN (लॉगिन)</button>
       <div id="loginStatus" class="status"></div>
     </section>
 
     <div id="appContent" class="hidden">
     <section class="card">
       <div class="logged-user">
-        Logged in as: <b id="loggedUserName"></b>
-        <button id="dashboardBtn" class="logout">DASHBOARD</button>
-        <button id="adminBtn" class="logout hidden">ADMIN</button>
-        <button id="homeBtn" class="logout">HOME</button>
-        <button id="logoutBtn" class="logout">LOGOUT</button>
+        Logged in as(लॉगिन उपयोगकर्ता): <b id="loggedUserName"></b>
+        <button id="dashboardBtn" class="logout">DASHBOARD(डैशबोर्ड)</button>
+        <button id="adminBtn" class="logout hidden">ADMIN(एडमिन)</button>
+        <button id="homeBtn" class="logout">HOME(होम)</button>
+        <button id="logoutBtn" class="logout">LOGOUT(लॉगआउट)</button>
       </div>
     </section>
 
     <section id="masterSetupCard" class="card master-setup-card hidden">
       <div class="master-setup-title">
-        <h2>Master Data Setup</h2>
-        <span id="masterSetupBadge" class="master-setup-badge loading">LOADING</span>
+        <h2>Master Data Setup(मास्टर डेटा सेटअप)</h2>
+        <span id="masterSetupBadge" class="master-setup-badge loading">LOADING(लोड हो रहा है)</span>
       </div>
-      <p id="masterSetupText">Consumer master data is being prepared for offline use. Please keep the app open.</p>
+      <p id="masterSetupText">Consumer master data is being prepared for offline use. Please keep the app open.(ऑफलाइन उपयोग के लिए उपभोक्ता मास्टर डेटा तैयार किया जा रहा है। कृपया ऐप खुला रखें।)</p>
       <div class="master-setup-track"><div id="masterSetupBar" class="master-setup-bar"></div></div>
-      <div id="masterSetupCount" class="master-setup-count">0 / 190,081</div>
-      <button id="masterSetupContinueBtn" class="primary hidden" type="button">CONTINUE</button>
+      <div id="masterSetupCount" class="master-setup-count"></div>
+   
+      <button id="masterSetupContinueBtn" class="primary hidden" type="button">CONTINUE(आगे बढ़ें)</button>
+      <button id="masterSetupRetryBtn" class="primary hidden" type="button">TRY AGAIN(फिर से प्रयास करें)</button>
+
     </section>
 
+
+
     <section id="surveyTypeCard" class="card">
-      <h2>Door-to-Door Survey</h2>
-      <p class="muted">Select the type of premises you are surveying.</p>
+      <h2>Door-to-Door Survey(घर-घर सर्वे)</h2>
+      <p class="muted">Select the type of premises you are surveying.(जिस प्रकार के परिसर का सर्वे कर रहे हैं, उसे चुनें।)</p>
       <div class="survey-type-grid">
         <button id="existingSurveyBtn" class="survey-type-btn" type="button">
-          EXISTING CONSUMER
-          <small>Consumer is present in the database</small>
+          EXISTING CONSUMER(मौजूदा उपभोक्ता)
+          <small>Consumer is present in the database(उपभोक्ता डेटा में उपलब्ध है)</small>
         </button>
         <button id="newSurveyBtn" class="survey-type-btn" type="button">
-          CONNECTION NOT IN DATABASE
-          <small>Not ledgerised / theft connection</small>
+          CONNECTION NOT IN DATABASE(कनेक्शन डेटाबेस में नहीं है)
+          <small>Not ledgerised BCD / theft connection(लेजर में दर्ज नहीं (BCD)/ चोरी का कनेक्शन)</small>
         </button>
       </div>
     </section>
 
     <section id="fieldWorkModulesCard" class="card">
-      <h2>Disconnection Work</h2>
+      <h2>Disconnection Work(विच्छेदन कार्य)</h2>
       <div class="survey-type-grid">
         <button id="disconnectionModuleBtn" class="survey-type-btn" type="button">
-          DO DISCONNECTIONS
-          <small>Record consumer disconnection activity</small>
+          DO DISCONNECTIONS(कनेक्शन विच्छेद करें)
+          <small>Record consumer disconnection activity(उपभोक्ता के विच्छेदन की कार्यवाही दर्ज करें)</small>
         </button>
         <button id="recheckModuleBtn" class="survey-type-btn" type="button">
-          RECHECK ALREADY DISCONNECTED
-          <small>Record rechecking activity</small>
+          RECHECK ALREADY DISCONNECTED(पहले से विच्छेदित कनेक्शन की पुनः जाँच)
+          <small>Record rechecking activity(पुनः जाँच की कार्यवाही दर्ज करें)</small>
         </button>
       </div>
     </section>
 
     <section id="phoneCallingModuleCard" class="card">
-      <h2>Phone Calling</h2>
+      <h2>Phone Calling(फोन कॉलिंग)</h2>
       <button id="phoneCallingModuleBtn" class="survey-type-btn" type="button">
-        PHONE CALLING
-        <small>Record consumer call responses</small>
+        PHONE CALLING(फोन कॉलिंग)
+        <small>Record consumer call responses(उपभोक्ता की कॉल प्रतिक्रिया दर्ज करें)</small>
       </button>
     </section>
 
     <section id="phoneCallingCard" class="card hidden">
       <h2>Phone Calling</h2>
-      <label for="phoneAccountId">Account ID</label>
+      <label for="phoneAccountId">Account ID(खाता संख्या)</label>
       <div class="search-line">
-        <input id="phoneAccountId" inputmode="numeric" placeholder="Enter Account ID">
-        <button id="phoneSearchBtn" class="primary" type="button">SEARCH</button>
+        <input id="phoneAccountId" inputmode="numeric" placeholder="Enter Account ID(खाता संख्या दर्ज करें)">
+        <button id="phoneSearchBtn" class="primary" type="button">SEARCH(खोजें)</button>
       </div>
       <div id="phoneSearchStatus" class="status"></div>
 
       <div id="phoneConsumerCard" class="details hidden">
-        <div><span>Account ID</span><b id="phoneAcct"></b></div>
-        <div><span>Name</span><b id="phoneName"></b></div>
-        <div><span>Father/Husband</span><b id="phoneFather"></b></div>
-        <div><span>Address</span><b id="phoneAddress"></b></div>
-        <div><span>Supply Type</span><b id="phoneSupply"></b></div>
-        <div><span>Sanctioned Load</span><b id="phoneLoad"></b></div>
-        <div><span>Total Outstanding</span><b id="phoneOutstanding"></b></div>
+        <div><span>Account ID(खाता संख्या)</span><b id="phoneAcct"></b></div>
+        <div><span>SDO Code(एसडीओ कोड)</span><b id="phoneSdoCode"></b></div>
+
+        <div><span>Name(नाम)</span><b id="phoneName"></b></div>
+        <div><span>Father/Husband(पिता/पति)</span><b id="phoneFather"></b></div>
+        <div><span>Address(पता)</span><b id="phoneAddress"></b></div>
+        <div><span>Feeded Village(फीडेड ग्राम)</span><b id="phoneFeededVillage"></b></div>
+        <div><span>Supply Type(सप्लाई प्रकार)</span><b id="phoneSupply"></b></div>
+        <div><span>Sanctioned Load(स्वीकृत भार)</span><b id="phoneLoad"></b></div>
+        <div><span>Total Outstanding(कुल बकाया)</span><b id="phoneOutstanding"></b></div>
+
+        <div><span>Last Pay Date(अंतिम भुगतान दिनांक)</span><b id="phoneLastPayDate"></b></div>
+        <div><span>Last Pay Amount(अंतिम भुगतान राशि)</span><b id="phoneLastPayAmount"></b></div>
+        <div><span>Current Month Consumption(चालू माह की खपत)</span><b id="phoneConsumptionCurr"></b></div>
       </div>
 
       <div id="phoneFormFields" class="hidden">
-        <label for="phoneMobile">Mobile Number</label>
+        <label for="phoneMobile">Mobile Number(मोबाइल नंबर)</label>
         <div class="search-line">
-          <input id="phoneMobile" inputmode="numeric" maxlength="10" autocomplete="tel" placeholder="10 digit mobile number">
-          <button id="phoneCallBtn" class="secondary" type="button" disabled>CALL</button>
+          <input id="phoneMobile" inputmode="numeric" maxlength="10" autocomplete="tel" placeholder="10 digit mobile number(10 अंकों का मोबाइल नंबर)"">
+          <button id="phoneCallBtn" class="secondary" type="button" disabled>CALL(कॉल करें)</button>
         </div>
 
-        <label for="phoneResponse">कॉल प्रतिक्रिया</label>
+        <label for="phoneResponse">(कॉल प्रतिक्रिया)</label>
+
         <select id="phoneResponse">
-          <option value="">Select</option>
+          <option value="">Select (चुनें)</option>
           <option value="गलत नंबर">1 - गलत नंबर</option>
           <option value="कॉल रिसीव नहीं कर रहे">2 - कॉल रिसीव नहीं कर रहे</option>
           <option value="कुछ दिन बाद जमा करेंगे">3 - कुछ दिन बाद जमा करेंगे (दिनांक लिखें)</option>
@@ -193,16 +599,21 @@
           <option value="PD होना है">9 - PD होना है</option>
           <option value="बिल जमा है">10 - बिल जमा है</option>
           <option value="कार्यालय आएंगे">11 - कार्यालय आएंगे</option>
-          <option value="अन्य">12 - अन्य</option>
+          <option value="नंबर स्विच ऑफ है">12 - नंबर स्विच ऑफ है</option>
+          <option value="नंबर नॉट रीचेबल है">13 - नंबर नॉट रीचेबल है</option>
+          <option value="इनकमिंग कॉल उपलब्ध नहीं है">14 - इनकमिंग कॉल उपलब्ध नहीं है (रिचार्ज नहीं है)</option>
+          <option value="अमान्य नंबर">15 - अमान्य नंबर</option>
+          <option value="अन्य">16 - अन्य</option>
         </select>
 
+
         <div id="phonePaymentDateWrap" class="hidden">
-          <label for="phonePaymentDate">Committed Payment Date</label>
+          <label for="phonePaymentDate">Committed Payment Date(भुगतान की प्रतिबद्ध दिनांक)</label>
           <input id="phonePaymentDate" type="date">
         </div>
 
-        <label for="phoneRemarks">Remark</label>
-        <textarea id="phoneRemarks" rows="3" placeholder="Enter remarks"></textarea>
+        <label for="phoneRemarks">Remark(टिप्पणी)</label>
+        <textarea id="phoneRemarks" rows="3" placeholder="Enter remarks(टिप्पणी दर्ज करें)"></textarea>
 
         <button id="phoneSubmitBtn" class="primary" type="button">SUBMIT</button>
         <button id="phoneBackBtn" class="secondary" type="button">BACK</button>
@@ -211,20 +622,271 @@
     </section>
 
     <section id="accountActivityModuleCard" class="card">
-      <h2>Account Activity History</h2>
-      <p class="muted">View all recorded activities for an Account ID.</p>
+      <h2>Account Activity History(खाता गतिविधि इतिहास)</h2>
+      <p class="muted">View all recorded activities for an Account ID.(किसी खाता संख्या की दर्ज सभी गतिविधियाँ देखें।)</p>
       <button id="accountActivityModuleBtn" class="survey-type-btn" type="button">
-        SEARCH
-        <small>Search local records and global records when online</small>
+        SEARCH(खोजें)
+        <small>Search local records and global records when online(ऑनलाइन होने पर स्थानीय एवं सर्वर रिकॉर्ड खोजें)</small>
       </button>
     </section>
+
+    <section id="masterListsModuleCard" class="card">
+      <h2>Lists from Master Data(मास्टर डेटा से सूचियाँ)</h2>
+      <p class="muted">Make consumer lists as PDF from the Master Data on this phone. Works offline.(इस फ़ोन के मास्टर डेटा से उपभोक्ता सूची PDF बनाएं। बिना इंटरनेट भी काम करता है।)</p>
+      <button id="openDefaulterListBtn" class="survey-type-btn" type="button">
+        DEFAULTER LIST(बकायेदार सूची)
+        <small>Filter defaulters and download a PDF list(बकायेदार फ़िल्टर करें और PDF सूची डाउनलोड करें)</small>
+      </button>
+      <button id="openDisconnectedUnpaidBtn" class="survey-type-btn" type="button" style="margin-top:10px">
+
+        DISCONNECTED BUT UNPAID LIST(विच्छेदित किन्तु अदत्त सूची)
+        <small>Disconnected consumers who have not paid since, needs internet(विच्छेदन के बाद भुगतान न करने वाले उपभोक्ता, इंटरनेट आवश्यक)</small>
+      </button>
+    </section>
+
+
+
+
+    <section id="defaulterListCard" class="card hidden">
+      <style>
+        .dl-filter{border:1px solid #e5e7eb;border-radius:10px;margin:10px 0;overflow:hidden;background:#fff}
+        .dl-filter-head{width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;background:#f8fafc;color:#172033;text-align:left;padding:12px;border-radius:0;font-weight:700}
+        .dl-summary{font-weight:600;color:#1565c0;font-size:13px;white-space:nowrap}
+        .dl-summary-warn{color:#b42318}
+        .dl-checklist{max-height:280px;overflow:auto;padding:4px 12px 8px}
+        label.dl-check{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 2px;border-bottom:1px solid #f1f5f9;font-size:14px;font-weight:400;margin:0;cursor:pointer}
+        label.dl-check.all{font-weight:700}
+        .dl-check input{display:none}
+        .dl-switch{position:relative;width:40px;height:22px;background:#cbd5e1;border-radius:999px;flex:0 0 auto;transition:background .15s}
+        .dl-switch::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}
+        .dl-check input:checked + .dl-switch{background:#16803c}
+        .dl-check input:checked + .dl-switch::after{left:21px}
+        .dl-search{margin:8px 0 4px}
+        .dl-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+        .dl-sort{display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px}
+      </style>
+
+      <h2>Defaulter List(बकायेदार सूची)</h2>
+
+      <div id="dlFilters">
+        <p class="muted">Tap a filter to open it. All options are selected by default. Each filter shows only the options that exist under the filters above it.(फ़िल्टर खोलने के लिए टैप करें। शुरू में सभी विकल्प चुने होते हैं। हर फ़िल्टर में केवल वही विकल्प दिखते हैं जो ऊपर के फ़िल्टर में उपलब्ध हैं।)</p>
+
+      <div id="dlStatusBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="dlStatus">Connection Status(कनेक्शन स्थिति)<span id="dlStatusSummary" class="dl-summary">All</span></button>
+        <div id="dlStatus" class="dl-checklist hidden"></div>
+      </div>
+      <div id="dlSdoBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="dlSdo">SDO Code(एसडीओ कोड)<span id="dlSdoSummary" class="dl-summary">All</span></button>
+        <div id="dlSdo" class="dl-checklist hidden"></div>
+      </div>
+      <div id="dlSubBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="dlSub">Substation(उपकेंद्र)<span id="dlSubSummary" class="dl-summary">All</span></button>
+        <div id="dlSub" class="dl-checklist hidden"></div>
+      </div>
+      <div id="dlFeederBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="dlFeeder">Feeder(फीडर)<span id="dlFeederSummary" class="dl-summary">All</span></button>
+        <div id="dlFeeder" class="dl-checklist hidden"></div>
+      </div>
+      <div id="dlVillageBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="dlVillage">Village(ग्राम)<span id="dlVillageSummary" class="dl-summary">All</span></button>
+        <div id="dlVillage" class="dl-checklist hidden"></div>
+      </div>
+      <div id="dlSupplyCatBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="dlSupplyCat">Supply Category(सप्लाई श्रेणी)<span id="dlSupplyCatSummary" class="dl-summary">All</span></button>
+        <div id="dlSupplyCat" class="dl-checklist hidden"></div>
+      </div>
+      <div id="dlSupplyBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="dlSupply">Supply Type(सप्लाई का प्रकार)<span id="dlSupplySummary" class="dl-summary">All</span></button>
+        <div id="dlSupply" class="dl-checklist hidden"></div>
+      </div>
+      <div id="dlMrBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="dlMr">MR Source Code(एमआर स्रोत कोड)<span id="dlMrSummary" class="dl-summary">All</span></button>
+        <div id="dlMr" class="dl-checklist hidden"></div>
+      </div>
+      <div id="dlSbmBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="dlSbm">SBM Machine ID(एसबीएम मशीन आईडी)<span id="dlSbmSummary" class="dl-summary">All</span></button>
+        <div id="dlSbm" class="dl-checklist hidden"></div>
+      </div>
+
+
+        <label for="dlLoadMode">Sanctioned Load kW(स्वीकृत भार)</label>
+        <select id="dlLoadMode">
+          <option value="ALL">All(सभी)</option>
+          <option value="RANGE">From and to(से और तक)</option>
+        </select>
+        <div id="dlLoadBox" class="dl-pair hidden" style="margin-top:8px">
+          <input id="dlLoadMin" inputmode="decimal" placeholder="From(से)">
+          <input id="dlLoadMax" inputmode="decimal" placeholder="To(तक)">
+        </div>
+
+        <label for="dlOutMin">Outstanding at least, Rs.(न्यूनतम बकाया)</label>
+        <input id="dlOutMin" inputmode="decimal" value="1">
+
+        <label for="dlPayMode">Last Payment Date Filter(अंतिम भुगतान तिथि फ़िल्टर)</label>
+        <select id="dlPayMode">
+          <option value="ALL">All(सभी)</option>
+          <option value="NEVER">Never paid(कभी भुगतान नहीं)</option>
+          <option value="LONG">Long unpaid(लंबे समय से भुगतान नहीं)</option>
+          <option value="SINCE">Not paid since a date(तारीख से भुगतान नहीं)</option>
+        </select>
+
+        <div id="dlLongBox" class="hidden">
+          <label for="dlLongDate">Last payment before(अंतिम भुगतान इससे पहले)</label>
+          <input id="dlLongDate" type="date" value="2023-03-31">
+        </div>
+
+        <div id="dlSinceBox" class="hidden">
+          <label for="dlSinceDate">Not paid since(इस तारीख से भुगतान नहीं)</label>
+          <input id="dlSinceDate" type="date">
+        </div>
+
+        <label for="dlDocMode">Date of Connection DOC(कनेक्शन तिथि)</label>
+        <select id="dlDocMode">
+          <option value="ALL">All(सभी)</option>
+          <option value="BETWEEN">Between dates(तारीखों के बीच)</option>
+        </select>
+        <div id="dlDocBox" class="dl-pair hidden" style="margin-top:8px">
+          <input id="dlDocFrom" type="date">
+          <input id="dlDocTo" type="date">
+        </div>
+
+        <label>Sort by(क्रम)</label>
+        <div class="dl-sort"><select id="dlSort1"></select><select id="dlDir1"></select></div>
+        <div class="dl-sort"><select id="dlSort2"></select><select id="dlDir2"></select></div>
+        <div class="dl-sort"><select id="dlSort3"></select><select id="dlDir3"></select></div>
+      </div>
+
+      <div id="dlStatusMsg" class="status"></div>
+
+      <button id="dlPreviewBtn" class="secondary" type="button">COUNT CONSUMERS(उपभोक्ता गिनें)</button>
+      <button id="dlPdfBtn" class="primary" type="button">DOWNLOAD PDF(पीडीएफ डाउनलोड करें)</button>
+      <button id="dlCloseBtn" class="secondary" type="button">BACK(वापस)</button>
+    </section>
+
+    <section id="disconnectedUnpaidCard" class="card hidden">
+      <h2>Disconnected But Unpaid List(विच्छेदित किन्तु अदत्त सूची)</h2>
+      <p class="muted">Disconnected consumers whose last payment in the Master Data is before the disconnection date. Uses the latest disconnection of each account. Consumer details come from the Master Data on this phone.(वे विच्छेदित उपभोक्ता जिनका मास्टर डेटा में अंतिम भुगतान विच्छेदन तिथि से पहले है। उपभोक्ता विवरण इस फ़ोन के मास्टर डेटा से लिया जाता है।)</p>
+
+      <button id="duLoadBtn" class="secondary" type="button">LOAD / REFRESH FROM SERVER(सर्वर से लोड करें)</button>
+
+      <div id="duFilters" class="hidden">
+        <p class="muted">Tap a filter to open it. All options are selected by default. Each filter shows only the options that exist under the filters above it.(फ़िल्टर खोलने के लिए टैप करें। शुरू में सभी विकल्प चुने होते हैं। हर फ़िल्टर में केवल वही विकल्प दिखते हैं जो ऊपर के फ़िल्टर में उपलब्ध हैं।)</p>
+
+      <div id="duStatusBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="duStatus">Disconnection Status(विच्छेदन स्थिति)<span id="duStatusSummary" class="dl-summary">All</span></button>
+        <div id="duStatus" class="dl-checklist hidden"></div>
+      </div>
+      <div id="duUserBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="duUser">User(उपयोगकर्ता)<span id="duUserSummary" class="dl-summary">All</span></button>
+        <div id="duUser" class="dl-checklist hidden"></div>
+      </div>
+      <div id="duConnBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="duConn">Connection Status(कनेक्शन स्थिति)<span id="duConnSummary" class="dl-summary">All</span></button>
+        <div id="duConn" class="dl-checklist hidden"></div>
+      </div>
+      <div id="duSdoBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="duSdo">SDO Code(एसडीओ कोड)<span id="duSdoSummary" class="dl-summary">All</span></button>
+        <div id="duSdo" class="dl-checklist hidden"></div>
+      </div>
+      <div id="duSubBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="duSub">Substation(उपकेंद्र)<span id="duSubSummary" class="dl-summary">All</span></button>
+        <div id="duSub" class="dl-checklist hidden"></div>
+      </div>
+      <div id="duFeederBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="duFeeder">Feeder(फीडर)<span id="duFeederSummary" class="dl-summary">All</span></button>
+        <div id="duFeeder" class="dl-checklist hidden"></div>
+      </div>
+      <div id="duVillageBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="duVillage">Village(ग्राम)<span id="duVillageSummary" class="dl-summary">All</span></button>
+        <div id="duVillage" class="dl-checklist hidden"></div>
+      </div>
+      <div id="duSupplyCatBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="duSupplyCat">Supply Category(सप्लाई श्रेणी)<span id="duSupplyCatSummary" class="dl-summary">All</span></button>
+        <div id="duSupplyCat" class="dl-checklist hidden"></div>
+      </div>
+      <div id="duSupplyBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="duSupply">Supply Type(सप्लाई का प्रकार)<span id="duSupplySummary" class="dl-summary">All</span></button>
+        <div id="duSupply" class="dl-checklist hidden"></div>
+      </div>
+      <div id="duMrBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="duMr">MR Source Code(एमआर स्रोत कोड)<span id="duMrSummary" class="dl-summary">All</span></button>
+        <div id="duMr" class="dl-checklist hidden"></div>
+      </div>
+      <div id="duSbmBox" class="dl-filter">
+        <button type="button" class="dl-filter-head" data-target="duSbm">SBM Machine ID(एसबीएम मशीन आईडी)<span id="duSbmSummary" class="dl-summary">All</span></button>
+        <div id="duSbm" class="dl-checklist hidden"></div>
+      </div>
+
+        <label for="duDateMode">Disconnection Date(विच्छेदन तिथि)</label>
+        <select id="duDateMode">
+          <option value="ALL">All(सभी)</option>
+          <option value="BETWEEN">Between dates(तारीखों के बीच)</option>
+        </select>
+        <div id="duDateBox" class="dl-pair hidden" style="margin-top:8px">
+          <input id="duDateFrom" type="date">
+          <input id="duDateTo" type="date">
+        </div>
+
+        <label for="duLoadMode">Sanctioned Load kW(स्वीकृत भार)</label>
+        <select id="duLoadMode">
+          <option value="ALL">All(सभी)</option>
+          <option value="RANGE">From and to(से और तक)</option>
+        </select>
+        <div id="duLoadBox" class="dl-pair hidden" style="margin-top:8px">
+          <input id="duLoadMin" inputmode="decimal" placeholder="From(से)">
+          <input id="duLoadMax" inputmode="decimal" placeholder="To(तक)">
+        </div>
+
+        <label for="duOutMin">Outstanding at least, Rs.(न्यूनतम बकाया)</label>
+        <input id="duOutMin" inputmode="decimal" placeholder="Any(कोई भी)">
+
+        <label for="duPayMode">Last Payment Date Filter(अंतिम भुगतान तिथि फ़िल्टर)</label>
+        <select id="duPayMode">
+          <option value="ALL">All(सभी)</option>
+          <option value="NEVER">Never paid(कभी भुगतान नहीं)</option>
+          <option value="LONG">Long unpaid(लंबे समय से भुगतान नहीं)</option>
+          <option value="SINCE">Not paid since a date(तारीख से भुगतान नहीं)</option>
+        </select>
+        <div id="duLongBox" class="hidden">
+          <label for="duLongDate">Last payment before(अंतिम भुगतान इससे पहले)</label>
+          <input id="duLongDate" type="date" value="2023-03-31">
+        </div>
+        <div id="duSinceBox" class="hidden">
+          <label for="duSinceDate">Not paid since(इस तारीख से भुगतान नहीं)</label>
+          <input id="duSinceDate" type="date">
+        </div>
+
+        <label for="duDocMode">Date of Connection DOC(कनेक्शन तिथि)</label>
+        <select id="duDocMode">
+          <option value="ALL">All(सभी)</option>
+          <option value="BETWEEN">Between dates(तारीखों के बीच)</option>
+        </select>
+        <div id="duDocBox" class="dl-pair hidden" style="margin-top:8px">
+          <input id="duDocFrom" type="date">
+          <input id="duDocTo" type="date">
+        </div>
+
+        <label>Sort by(क्रम)</label>
+        <div class="dl-sort"><select id="duSort1"></select><select id="duDir1"></select></div>
+        <div class="dl-sort"><select id="duSort2"></select><select id="duDir2"></select></div>
+        <div class="dl-sort"><select id="duSort3"></select><select id="duDir3"></select></div>
+        <div class="dl-sort"><select id="duSort4"></select><select id="duDir4"></select></div>
+      </div>
+
+      <div id="duStatusMsg" class="status"></div>
+
+      <button id="duPreviewBtn" class="secondary" type="button">COUNT CONSUMERS(उपभोक्ता गिनें)</button>
+      <button id="duPdfBtn" class="primary" type="button">DOWNLOAD PDF(पीडीएफ डाउनलोड करें)</button>
+      <button id="duBackBtn" class="secondary" type="button">BACK(वापस)</button>
+    </section>
+
 
     <section id="activitySearchCard" class="card hidden">
       <h2>Account Activity History</h2>
       <label for="activityAccountId">Account ID</label>
       <div class="search-line">
-        <input id="activityAccountId" inputmode="numeric" placeholder="Enter Account ID">
-        <button id="activitySearchBtn" class="primary" type="button">SEARCH</button>
+        <input id="activityAccountId" inputmode="numeric" placeholder="Enter Account ID(खाता संख्या दर्ज करें)">
+        <button id="activitySearchBtn" class="primary" type="button">SEARCH(खोजें)</button>
       </div>
       <div id="activitySearchStatus" class="status"></div>
       <div id="activityScopeNotice" class="activity-scope-notice hidden"></div>
@@ -233,175 +895,269 @@
     </section>
 
     <section id="disconnectionCard" class="card hidden">
-      <h2>Do Disconnections</h2>
-      <label for="disconnectAccountId">Account ID</label>
+
+      <h2>Do Disconnections(कनेक्शन विच्छेदन करें)</h2>
+      <div id="noCameraNoticeDisconnect" class="duplicate-warning hidden">This device does not have a camera, so this form cannot be submitted.(इस डिवाइस में कैमरा नहीं है, इसलिए यह फॉर्म सबमिट नहीं किया जा सकता।)</div>
+
+
+      <label for="disconnectSearchType">Search By(इसके द्वारा खोजें)</label>
+      <select id="disconnectSearchType">
+        <option value="ACCOUNT">Account ID(खाता संख्या)</option>
+        <option value="NAME">Consumer Name(उपभोक्ता नाम)</option>
+        <option value="FATHER_NAME">Father Name(पिता का नाम)</option>
+        <option value="MOBILE">Mobile Number(मोबाइल नंबर)</option>
+        <option value="METER">Meter Number(मीटर नंबर)</option>
+      </select>
+
+      <label for="disconnectAccountId">Search Value</label>
       <div class="search-line">
-        <input id="disconnectAccountId" inputmode="numeric" placeholder="Enter Account ID">
-        <button id="disconnectSearchBtn" class="primary" type="button">SEARCH</button>
+        <input id="disconnectAccountId" autocomplete="off" placeholder="Enter account ID(खाता संख्या दर्ज करें)">
+        <button id="disconnectSearchBtn" class="primary" type="button">SEARCH(खोजें)</button>
       </div>
+
+      <label for="disconnectVillageFilter">Filter by Village(ग्राम द्वारा फ़िल्टर)</label>
+      <select id="disconnectVillageFilter">
+        <option value="">All Villages(सभी ग्राम)</option>
+      </select>
       <div id="disconnectSearchStatus" class="status"></div>
+      <div id="disconnectSearchResults" class="search-results hidden"></div>
+
+
+
 
       <div id="disconnectConsumerCard" class="details hidden">
-        <div><span>Account ID</span><b id="dcAcct"></b></div>
-        <div><span>Name</span><b id="dcName"></b></div>
-        <div><span>Father/Husband</span><b id="dcFather"></b></div>
-        <div><span>Address</span><b id="dcAddress"></b></div>
-        <div><span>Supply Type</span><b id="dcSupply"></b></div>
-        <div><span>Sanctioned Load</span><b id="dcLoad"></b></div>
-        <div><span>Meter Number</span><b id="dcMeterNo"></b></div>
-        <div><span>Total Outstanding</span><b id="dcOutstanding"></b></div>
+        <div><span>Account ID(खाता संख्या)</span><b id="dcAcct"></b></div>
+        <div><span>SDO Code(एसडीओ कोड)</span><b id="dcSdoCode"></b></div>
+        <div><span>Name(नाम)</span><b id="dcName"></b></div>
+        <div><span>Father/Husband(पिता/पति)</span><b id="dcFather"></b></div>
+        <div><span>Address(पता)</span><b id="dcAddress"></b></div>
+        <div><span>Feeded Village(फीडेड ग्राम)</span><b id="dcFeededVillage"></b></div>
+        <div><span>Supply Type(सप्लाई प्रकार)</span><b id="dcSupply"></b></div>
+        <div><span>Sanctioned Load(स्वीकृत भार)</span><b id="dcLoad"></b></div>
+        <div><span>Meter Number(मीटर नंबर)</span><b id="dcMeterNo"></b></div>
+        <div><span>Total Outstanding(कुल बकाया)</span><b id="dcOutstanding"></b></div>
+
+
+
+        <div><span>Last Pay Date(अंतिम भुगतान दिनांक)</span><b id="dcLastPayDate"></b></div>
+        <div><span>Last Pay Amount(अंतिम भुगतान राशि)</span><b id="dcLastPayAmount"></b></div>
+        <div><span>Current Month Consumption(चालू माह की खपत)</span><b id="dcConsumptionCurr"></b></div>
       </div>
 
       <div id="disconnectFormFields" class="hidden">
-        <label for="disconnectStatus">Disconnection Status</label>
+        <label for="disconnectStatus">Disconnection Status(विच्छेदन स्थिति)</label>
         <select id="disconnectStatus">
-          <option value="">Select</option>
-          <option value="DISCONNECTED">Disconnected</option>
-          <option value="TIME GIVEN FOR PAYMENT">Time Given for Payment</option>
-          <option value="PAID">Paid</option>
+          <option value="">Select(चुनें)</option>
+          <option value="DISCONNECTED">Disconnected(कनेक्शन काट दिया)</option>
+          <option value="TIME GIVEN FOR PAYMENT">Time Given for Payment(भुगतान के लिए समय दिया)</option>
+          <option value="PAID">Paid(भुगतान कर दिया)</option>
         </select>
 
         <div id="disconnectPaymentModeWrap" class="hidden">
-          <label for="disconnectPaymentMode">Payment Mode</label>
+          <label for="disconnectPaymentMode">Payment Mode(भुगतान का माध्यम)</label>
           <select id="disconnectPaymentMode">
-            <option value="">Select</option>
-            <option value="PAID ONLINE AT SITE">Paid Online at Site</option>
-            <option value="PAID OFFLINE AT COUNTER">Paid Offline at Counter</option>
-            <option value="PAYMENT RECEIVED BY LINEMAN">Payment Received by Lineman</option>
+            <option value="">Select(चुनें)</option>
+            <option value="PAID ONLINE AT SITE">Paid Online at Site(साइट पर ऑनलाइन भुगतान किया)</option>
+            <option value="PAID OFFLINE AT COUNTER">Paid Offline at Counter(काउंटर पर ऑफलाइन भुगतान किया)</option>
+            <option value="PAYMENT RECEIVED BY LINEMAN">Payment Received by Lineman(लाइनमैन द्वारा भुगतान प्राप्त कर लिया)</option>
           </select>
         </div>
 
         <div id="disconnectCommitDateWrap" class="hidden">
-          <label for="disconnectCommitDate">Committed Payment Date</label>
+          <label for="disconnectCommitDate">Committed Payment Date(भुगतान की प्रतिबद्ध दिनांक)</label>
           <input id="disconnectCommitDate" type="date">
         </div>
 
-        <label for="disconnectMeterStatus">Current Meter Status</label>
+        <label for="disconnectMeterStatus">Current Meter Status(वर्तमान मीटर स्थिति)</label>
         <select id="disconnectMeterStatus">
-          <option value="">Select</option>
-          <option value="OK">OK</option>
-          <option value="DAMAGED">DAMAGED</option>
-          <option value="NOT INSTALLED">NOT INSTALLED</option>
+          <option value="">Select(चुनें)</option>
+          <option value="OK">OK(सही है)</option>
+          <option value="DAMAGED">DAMAGED(खराब है)</option>
+          <option value="NOT INSTALLED">NOT INSTALLED(लगाया नहीं गया है)</option>
         </select>
 
-        <label for="disconnectReading">Current Reading</label>
-        <input id="disconnectReading" inputmode="decimal" placeholder="Enter current reading if applicable">
+        <label for="disconnectReading">Site Reading(स्थल रीडिंग)</label>
+        <input id="disconnectReading" inputmode="decimal" placeholder="Enter current reading if applicable(वर्तमान रीडिंग दर्ज करें)">
 
-        <label for="disconnectMobile">Mobile Number</label>
+        <label for="disconnectMobile">Mobile Number(मोबाइल नंबर)</label>
         <input id="disconnectMobile" inputmode="numeric" maxlength="10" placeholder="10 digit mobile number">
 
-        <label for="disconnectHouseCondition">House Condition</label>
+        <label for="disconnectHouseCondition">House Condition(मकान की स्थिति)</label>
         <select id="disconnectHouseCondition">
-          <option value="">Select</option>
-          <option value="KUTCHA HOUSE">Kutcha House</option>
-          <option value="PUCCA NORMAL HOUSE">Pucca Normal House</option>
-          <option value="PUCCA GOOD HOUSE">Pucca Good House</option>
-          <option value="LUXURY (RICH) HOUSE">Luxury (Rich) House</option>
+          <option value="">Select(चुनें)</option>
+          <option value="KUTCHA HOUSE">Kutcha House(कच्चा घर)</option>
+          <option value="PUCCA NORMAL HOUSE">Pucca Normal House(पक्का सामान्य घर)</option>
+          <option value="PUCCA GOOD HOUSE">Pucca Good House(पक्का बढ़िया मकान)</option>
+          <option value="LUXURY (RICH) HOUSE">Luxury (Rich) House(शानदार/आलीशान घर)</option>
         </select>
 
-        <label for="disconnectRemarks">Remark</label>
-        <textarea id="disconnectRemarks" rows="3" placeholder="Enter remarks"></textarea>
+        <div id="disconnectVideoSection" class="hidden">
+          <label>Video Evidence(वीडियो साक्ष्य)</label>
+          <div id="disconnectVideoInfo" class="muted">No video recorded yet.</div>
+          <button id="disconnectRecordBtn" class="secondary" type="button">RECORD VIDEO(वीडियो रिकॉर्ड करें)</button>
+        </div>
 
-        <button id="disconnectSubmitBtn" class="primary" type="button">SUBMIT DISCONNECTION</button>
+
+        <label for="disconnectRemarks">Remark(टिप्पणी)(चोरी या स्टोर रीडिंग की संभावना)</label>
+        <textarea id="disconnectRemarks" rows="3" placeholder="Enter remarks(टिप्पणी दर्ज करें)"></textarea>
+
+        <button id="disconnectSubmitBtn" class="primary" type="button">SUBMIT DISCONNECTION(जमा करें)</button>
         <button id="disconnectBackBtn" class="secondary" type="button">BACK</button>
         <div id="disconnectSaveStatus" class="status"></div>
       </div>
     </section>
 
     <section id="recheckCard" class="card hidden">
-      <h2>Recheck Already Disconnected</h2>
-      <label for="recheckAccountId">Account ID</label>
+
+      <h2>Recheck Already Disconnected(पहले से विच्छेदित कनेक्शन की पुनः जाँच)</h2>
+      <div id="noCameraNoticeRecheck" class="duplicate-warning hidden">This device does not have a camera, so this form cannot be submitted.(इस डिवाइस में कैमरा नहीं है, इसलिए यह फॉर्म सबमिट नहीं किया जा सकता।)</div>
+
+      <label for="recheckSearchType">Search By(इसके द्वारा खोजें)</label>
+      <select id="recheckSearchType">
+        <option value="ACCOUNT">Account ID(खाता संख्या)</option>
+        <option value="NAME">Consumer Name(उपभोक्ता नाम)</option>
+        <option value="FATHER_NAME">Father Name(पिता का नाम)</option>
+        <option value="MOBILE">Mobile Number(मोबाइल नंबर)</option>
+        <option value="METER">Meter Number(मीटर नंबर)</option>
+      </select>
+
+      <label for="recheckAccountId">Search Value</label>
       <div class="search-line">
-        <input id="recheckAccountId" inputmode="numeric" placeholder="Enter Account ID">
-        <button id="recheckSearchBtn" class="primary" type="button">SEARCH</button>
+        <input id="recheckAccountId" autocomplete="off" placeholder="Enter account ID(खाता संख्या दर्ज करें)">
+        <button id="recheckSearchBtn" class="primary" type="button">SEARCH(खोजें)</button>
       </div>
+
+      <label for="recheckVillageFilter">Filter by Village(ग्राम द्वारा फ़िल्टर)</label>
+      <select id="recheckVillageFilter">
+        <option value="">All Villages(सभी ग्राम)</option>
+      </select>
+
       <div id="recheckSearchStatus" class="status"></div>
+      <div id="recheckSearchResults" class="search-results hidden"></div>
+
 
       <div id="recheckConsumerCard" class="details hidden">
-        <div><span>Account ID</span><b id="rcAcct"></b></div>
-        <div><span>Name</span><b id="rcName"></b></div>
-        <div><span>Father/Husband</span><b id="rcFather"></b></div>
-        <div><span>Address</span><b id="rcAddress"></b></div>
-        <div><span>Supply Type</span><b id="rcSupply"></b></div>
-        <div><span>Sanctioned Load</span><b id="rcLoad"></b></div>
-        <div><span>Meter Number</span><b id="rcMeterNo"></b></div>
-        <div><span>Total Outstanding</span><b id="rcOutstanding"></b></div>
+        <div><span>Account ID(खाता संख्या)</span><b id="rcAcct"></b></div>
+        <div><span>SDO Code(एसडीओ कोड)</span><b id="rcSdoCode"></b></div>
+        <div><span>Name(नाम)</span><b id="rcName"></b></div>
+        <div><span>Father/Husband(पिता/पति)</span><b id="rcFather"></b></div>
+        <div><span>Address(पता)</span><b id="rcAddress"></b></div>
+        <div><span>Feeded Village(फीडेड ग्राम)</span><b id="rcFeededVillage"></b></div>
+        <div><span>Supply Type(सप्लाई प्रकार)</span><b id="rcSupply"></b></div>
+        <div><span>Sanctioned Load(स्वीकृत भार)</span><b id="rcLoad"></b></div>
+        <div><span>Meter Number(मीटर संख्या)</span><b id="rcMeterNo"></b></div>
+        <div><span>Total Outstanding(कुल बकाया)</span><b id="rcOutstanding"></b></div>
+
+
+        <div><span>Last Pay Date(अंतिम भुगतान दिनांक)</span><b id="rcLastPayDate"></b></div>
+        <div><span>Last Pay Amount(अंतिम भुगतान राशि)</span><b id="rcLastPayAmount"></b></div>
+        <div><span>Current Month Consumption(चालू माह की खपत)</span><b id="rcConsumptionCurr"></b></div>
+
+
       </div>
 
       <div id="recheckFormFields" class="hidden">
-        <label for="recheckStatus">Present Status</label>
+        <label for="recheckStatus">Present Status(वर्तमान स्थिति)</label>
         <select id="recheckStatus">
-          <option value="">Select</option>
-          <option value="STILL DISCONNECTED">Still Disconnected</option>
-          <option value="FOUND CONNECTED">Found Connected</option>
-          <option value="HOUSE LOCKED">Found House Locked</option>
-          <option value="PAYMENT MADE">Payment Made</option>
+          <option value="">Select(चुनें)</option>
+          <option value="STILL DISCONNECTED">Still Disconnected(अभी भी कटा हुआ है)</option>
+          <option value="FOUND CONNECTED">Found Connected(जुड़ा हुआ मिला)</option>
+          <option value="HOUSE LOCKED">Found House Locked(घर बंद मिला)</option>
+          <option value="PAYMENT MADE">Payment Made(भुगतान कर दिया गया)</option>
         </select>
 
         <div id="recheckPaymentModeWrap" class="hidden">
-          <label for="recheckPaymentMode">Payment Mode</label>
+          <label for="recheckPaymentMode">Payment Mode(भुगतान का माध्यम)</label>
           <select id="recheckPaymentMode">
-            <option value="">Select</option>
-            <option value="PAID ONLINE AT SITE">Paid Online at Site</option>
-            <option value="PAID OFFLINE AT COUNTER">Paid Offline at Counter</option>
-            <option value="PAYMENT RECEIVED BY LINEMAN">Payment Received by Lineman</option>
+            <option value="">Select(चुनें)</option>
+            <option value="PAID ONLINE AT SITE">Paid Online at Site(साइट पर ऑनलाइन भुगतान किया)</option>
+            <option value="PAID OFFLINE AT COUNTER">Paid Offline at Counter(काउंटर पर ऑफलाइन भुगतान किया)</option>
+            <option value="PAYMENT RECEIVED BY LINEMAN">Payment Received by Lineman(लाइनमैन को पेमेंट मिल गया)</option>
           </select>
         </div>
 
-        <label for="recheckMeterStatus">Current Meter Status</label>
+        <label for="recheckMeterStatus">Current Meter Status(वर्तमान मीटर स्थिति)</label>
         <select id="recheckMeterStatus">
-          <option value="">Select</option>
-          <option value="OK">OK</option>
-          <option value="DAMAGED">DAMAGED</option>
-          <option value="NOT INSTALLED">NOT INSTALLED</option>
+          <option value="">Select(चुनें)</option>
+          <option value="OK">OK(सही है)</option>
+          <option value="DAMAGED">DAMAGED(खराब है)</option>
+          <option value="NOT INSTALLED">NOT INSTALLED(स्थापित नहीं है)</option>
         </select>
 
-        <label for="recheckReading">Current Reading</label>
-        <input id="recheckReading" inputmode="decimal" placeholder="Enter current reading if applicable">
 
-        <label for="recheckMobile">Mobile Number</label>
+        <label for="recheckReading">Site Reading(स्थल रीडिंग)</label>
+        <input id="recheckReading" inputmode="decimal" placeholder="Enter current reading if applicable(वर्तमान रीडिंग दर्ज करें)">
+
+        <label for="recheckMobile">Mobile Number(मोबाइल नंबर)</label>
         <input id="recheckMobile" inputmode="numeric" maxlength="10" placeholder="10 digit mobile number">
 
-        <label for="recheckRemarks">Remark</label>
-        <textarea id="recheckRemarks" rows="3" placeholder="Enter remarks"></textarea>
+        <div id="recheckVideoSection" class="hidden">
+          <label>Video Evidence(वीडियो साक्ष्य)</label>
+          <div id="recheckVideoInfo" class="muted">No video recorded yet.</div>
+          <button id="recheckRecordBtn" class="secondary" type="button">RECORD VIDEO(वीडियो रिकॉर्ड करें)</button>
+        </div>
 
-        <button id="recheckSubmitBtn" class="primary" type="button">SUBMIT RECHECK</button>
+
+        <label for="recheckRemarks">Remark(टिप्पणी)(चोरी या स्टोर रीडिंग की संभावना)</label>
+        <textarea id="recheckRemarks" rows="3" placeholder="Enter remarks(टिप्पणी दर्ज करें)"></textarea>
+
+        <button id="recheckSubmitBtn" class="primary" type="button">SUBMIT RECHECK(सबमिट करें)</button>
         <button id="recheckBackBtn" class="secondary" type="button">BACK</button>
         <div id="recheckSaveStatus" class="status"></div>
       </div>
     </section>
 
-    <section id="existingSearchCard" class="card hidden">
-      <h2>Existing Consumer</h2>
 
-      <label for="searchType">Search By</label>
+    <section id="existingSearchCard" class="card hidden">
+      <h2>Existing Consumer(मौजूदा उपभोक्ता)</h2>
+
+      <label for="searchType">Search By(इसके द्वारा खोजें)</label>
       <select id="searchType">
-        <option value="ACCOUNT">Account ID</option>
-        <option value="METER">Meter Number</option>
+        <option value="ACCOUNT">Account ID(खाता संख्या)</option>
+        <option value="NAME">Consumer Name(उपभोक्ता नाम)</option>
+        <option value="FATHER_NAME">Father Name(पिता का नाम)</option>
+        <option value="MOBILE">Mobile Number(मोबाइल नंबर)</option>
+        <option value="METER">Meter Number(मीटर नंबर)</option>
       </select>
 
       <label for="accountId">Search Value</label>
       <div class="search-row">
-        <input id="accountId" autocomplete="off" placeholder="Enter account ID">
-        <button id="searchBtn" type="button">SEARCH</button>
+        <input id="accountId" autocomplete="off" placeholder="Enter account ID (खाता संख्या दर्ज करें)">
+        <button id="searchBtn" type="button">SEARCH (खोजें)</button>
       </div>
+
+      <label for="villageFilter">Filter by Village(ग्राम द्वारा फ़िल्टर)</label>
+      <select id="villageFilter">
+        <option value="">All Villages(सभी ग्राम)</option>
+      </select>
+
       <div id="searchStatus" class="status"></div>
     </section>
 
+
     <section id="consumerCard" class="card hidden">
-      <h2>Consumer Details</h2>
+      <h2>Consumer Details(उपभोक्ता विवरण)</h2>
       <div class="details">
-        <div><span>Account ID</span><b id="dAcct"></b></div>
-        <div><span>Name</span><b id="dName"></b></div>
-        <div><span>Father/Husband</span><b id="dFather"></b></div>
-        <div><span>Address</span><b id="dAddress"></b></div>
-        <div><span>Supply Type</span><b id="dSupply"></b></div>
-        <div><span>Sanctioned Load</span><b id="dLoad"></b></div>
-        <div><span>SDO Code</span><b id="dSdo"></b></div>
-        <div><span>Connection Status</span><b id="dConnectionStatus" class="connection-status-value"></b></div>
-        <div><span>Meter Number</span><b id="dMeterNo"></b></div>
-        <div><span>Current Reading</span><b id="dCurrentReading"></b></div>
-        <div><span>Total Outstanding</span><b id="dOutstanding"></b></div>
+        <div><span>Account ID(खाता संख्या)</span><b id="dAcct"></b></div>
+        <div><span>SDO Code(एसडीओ कोड)</span><b id="dSdoCode"></b></div>
+        <div><span>Name(नाम)</span><b id="dName"></b></div>
+        <div><span>Father/Husband(पिता/पति)</span><b id="dFather"></b></div>
+        <div><span>Address(पता)</span><b id="dAddress"></b></div>
+        <div><span>Feeded Village(फीडेड ग्राम)</span><b id="dFeededVillage"></b></div>
+        <div><span>Supply Type(सप्लाई प्रकार)</span><b id="dSupply"></b></div>
+        <div><span>Sanctioned Load(स्वीकृत भार)</span><b id="dLoad"></b></div>
+
+        <div><span>Connection Status(कनेक्शन स्थिति)</span><b id="dConnectionStatus" class="connection-status-value"></b></div>
+        <div><span>Meter Number(मीटर नंबर)</span><b id="dMeterNo"></b></div>
+
+        <div><span>Master Reading(मास्टर रीडिंग)</span><b id="dCurrentReading"></b></div>
+        <div><span>Total Outstanding(कुल बकाया)</span><b id="dOutstanding"></b></div>
+
+        <div><span>Last Pay Date(अंतिम भुगतान दिनांक)</span><b id="dLastPayDate"></b></div>
+        <div><span>Last Pay Amount(अंतिम भुगतान राशि)</span><b id="dLastPayAmount"></b></div>
+        <div><span>Current Month Consumption(चालू माह की खपत)</span><b id="dConsumptionCurr"></b></div>
+
+
       </div>
       <div id="duplicateWarning" class="duplicate-warning hidden"></div>
       <div id="outstandingAlert" class="outstanding-alert hidden" role="alert">
@@ -411,75 +1167,107 @@
     </section>
 
     <section id="entryCard" class="card hidden">
-      <h2>Survey Details</h2>
+      <h2>Survey Details(सर्वे विवरण)</h2>
 
-      <label for="village">Correct Village</label>
+      <label for="feeder">Feeder(फीडर)</label>
+      <select id="feeder">
+        <option value="">Select feeder(फीडर चुनें)</option>
+      </select>
+      <label for="dt">DT(ट्रांसफार्मर)</label>
+      <select id="dt">
+        <option value="">Select DT(ट्रांसफार्मर चुनें)</option>
+      </select>
+      <label for="village">Correct Village(सही ग्राम)</label>
       <select id="village">
-        <option value="">Select village</option>
-        <option value="__NOT_IN_LIST__">NOT IN THE LIST</option>
+        <option value="">Select village(ग्राम चुनें)</option>
+        <option value="__NOT_IN_LIST__">NOT IN THE LIST(सूची में नहीं है)</option>
       </select>
-      <label for="natureOfSupply">Nature of Supply</label>
+
+      <label for="natureOfSupply">Nature of Supply(सप्लाई का प्रकार)</label>
       <select id="natureOfSupply">
-        <option value="">Select</option>
-        <option value="DOMESTIC">Domestic</option>
-        <option value="COMMERCIAL">Commercial</option>
-        <option value="TEMPORARY">Temporary</option>
-        <option value="GOVERNMENT">Government</option>
+        <option value="">Select(चुनें)</option>
+        <option value="DOMESTIC">Domestic(घरेलू)</option>
+        <option value="COMMERCIAL">Commercial(कमर्शियल)</option>
+        <option value="TEMPORARY">Temporary(अस्थायी)</option>
+        <option value="INDUSTRIAL">Industrial(चक्की / औद्योगिक)</option>
+        <option value="PRIVATE_SCHOOL">Private School(निजी स्कूल)</option>
+        <option value="GOVERNMENT">Government(सरकारी)</option>
       </select>
-      <label for="houseCondition">House Condition</label>
+      <label for="houseCondition">House Condition(मकान की स्थिति)</label>
       <select id="houseCondition">
-        <option value="">Select</option>
-        <option value="KUTCHA HOUSE">Kutcha House</option>
-        <option value="PUCCA NORMAL HOUSE">Pucca Normal House</option>
-        <option value="PUCCA GOOD HOUSE">Pucca Good House</option>
-        <option value="LUXURY (RICH) HOUSE">Luxury (Rich) House</option>
+        <option value="">Select(चुनें)</option>
+        <option value="KUTCHA HOUSE">Kutcha House(कच्चा घर)</option>
+        <option value="PUCCA NORMAL HOUSE">Pucca Normal House(पक्का सामान्य घर)</option>
+        <option value="PUCCA GOOD HOUSE">Pucca Good House(पक्का बढ़िया घर)</option>
+        <option value="LUXURY (RICH) HOUSE">Luxury (Rich) House(शानदार/आलीशान घर)</option>
       </select>
 
       <label for="consumerPaymentResponse">उपभोक्ता द्वारा भुगतान के संबंध में प्रतिक्रिया</label>
+
       <select id="consumerPaymentResponse">
-        <option value="">Select</option>
-        <option value="शीघ्र जमा करेंगे">1 - शीघ्र जमा करेंगे</option>
-        <option value="कुछ दिन बाद जमा करेंगे">2 - कुछ दिन बाद जमा करेंगे (दिनांक लिखें)</option>
-        <option value="जमा नहीं करेंगे">3 - जमा नहीं करेंगे</option>
-        <option value="बिल गलत है">4 - बिल गलत है</option>
-        <option value="बिल जमा है">5 - बिल जमा है</option>
-        <option value="JE/SDO से बात करेंगे">6 - JE/SDO से बात करेंगे</option>
-        <option value="कार्यालय आएंगे">7 - कार्यालय आएंगे</option>
-        <option value="पीडी (PD) कराना है">8 - पीडी (PD) कराना है</option>
-        <option value="अन्य">9 - अन्य</option>
+        <option value="">Select (चुनें)</option>
+        <option value="कुछ दिन बाद जमा करेंगे">1 - कुछ दिन बाद जमा करेंगे (दिनांक लिखें)</option>
+        <option value="जमा नहीं करेंगे">2 - जमा नहीं करेंगे</option>
+        <option value="बिल गलत है">3 - बिल गलत है</option>
+        <option value="बिल जमा है">4 - बिल जमा है</option>
+        <option value="JE/SDO से बात करेंगे">5 - JE/SDO से बात करेंगे</option>
+        <option value="कार्यालय आएंगे">6 - कार्यालय आएंगे</option>
+        <option value="पीडी (PD) कराना है">7 - पीडी (PD) कराना है</option>
+        <option value="घर पर बात करेंगे">8 - घर पर बात करेंगे</option>
+        <option value="घर पर ताला लगा है">9 - घर पर ताला लगा है (उपभोक्ता से फोन पर बात नहीं हो पा रही है)</option>
+        <option value="घर पर केवल महिला है">10 - घर पर केवल महिला है (पुरुष से फोन पर बात नहीं हो पा रही है)</option>
+        <option value="अन्य">11 - अन्य</option>
       </select>
+
+
 
       <div id="consumerPaymentDateWrap" class="hidden">
         <label for="consumerPaymentDate">भुगतान की संभावित दिनांक</label>
         <input id="consumerPaymentDate" type="date">
       </div>
 
-      <label for="meterCondition">Meter Condition</label>
+      <label for="meterCondition">Meter Condition(मीटर की स्थिति)</label>
       <select id="meterCondition">
-        <option value="">Select meter condition</option>
-        <option value="OK">OK</option>
-        <option value="DAMAGED">DAMAGED</option>
-        <option value="NOT INSTALLED">NOT INSTALLED</option>
+        <option value="">Select meter condition(मीटर की स्थिति चुनें)</option>
+        <option value="OK">OK(सही है)</option>
+        <option value="DAMAGED">DAMAGED(खराब है)</option>
+        <option value="NOT INSTALLED">NOT INSTALLED(स्थापित नहीं है)</option>
       </select>
 
-      <label for="acInstalled">AC Installed</label>
+      <label for="siteReading">Site Meter Reading(स्थल रीडिंग)</label>
+      <input id="siteReading" inputmode="decimal" placeholder="Reading seen on site, optional(स्थल पर रीडिंग, वैकल्पिक)">
+
+      <label for="siteMaxDemand">Site Max Demand(स्थल अधिकतम मांग)</label>
+      <input id="siteMaxDemand" inputmode="decimal" placeholder="MD seen on site, optional(स्थल पर MD, वैकल्पिक)">
+
+      <label for="theftPossibility">Theft Possibility(चोरी की संभावना)</label>
+      <select id="theftPossibility">
+        <option value="">Select(चुनें)</option>
+        <option value="EXTRA CABLE OTHER THAN SERVICE CABLE">Extra cable other than service cable(सर्विस केबल के अलावा अतिरिक्त केबल)</option>
+        <option value="BYPASS IN SERVICE CABLE">Bypass in service cable(सर्विस केबल में बाईपास)</option>
+        <option value="METER SHUNT DOUBT">Meter shunt doubt(मीटर शंट का संदेह)</option>
+        <option value="NO METER INSTALLED">No meter installed(मीटर नहीं लगा है)</option>
+        <option value="NO THEFT">No theft(चोरी नहीं है)</option>
+      </select>
+
+      <label for="acInstalled">AC Installed(एसी लगा है)</label>
       <select id="acInstalled">
-        <option value="">Select</option>
-        <option value="YES">YES</option>
-        <option value="NO">NO</option>
+        <option value="">Select (चुनें)</option>
+        <option value="YES">YES (हाँ) </option>
+        <option value="NO">NO (नहीं)</option>
       </select>
 
-      <label for="mobile">Mobile Number</label>
+      <label for="mobile">Mobile Number (मोबाइल नंबर)</label>
       <input id="mobile" inputmode="numeric" maxlength="10" autocomplete="tel"
-             placeholder="10 digit mobile number">
+             placeholder="Enter 10 digit mobile number (10 अंकों का मोबाइल नंबर)">
 
       <div class="check-row">
-        <label><input id="houseLocked" type="checkbox"> HOUSE LOCKED</label>
-        <label><input id="mobileRefused" type="checkbox"> CONSUMER REFUSED FOR MOBILE NUMBER</label>
+        <label><input id="houseLocked" type="checkbox">HOUSE LOCKED(मकान बंद)</label>
+        <label><input id="mobileRefused" type="checkbox">CONSUMER REFUSED FOR MOBILE NUMBER(उपभोक्ता ने मोबाइल नंबर देने से मना किया)</label>
       </div>
 
-      <label for="existingRemarks">Remarks</label>
-      <textarea id="existingRemarks" rows="3" placeholder="Enter remarks"></textarea>
+      <label for="existingRemarks">Remarks(टिप्पणी)(चोरी या स्टोर रीडिंग की संभावना)</label>
+      <textarea id="existingRemarks" rows="3" placeholder="Enter remarks(टिप्पणी दर्ज करें)"></textarea>
 
       <button id="saveBtn" class="primary" type="button">SUBMIT SURVEY</button>
       <button id="backToSurveyTypeBtn" class="secondary" type="button">BACK TO HOME</button>
@@ -487,102 +1275,135 @@
     </section>
 
     <section id="newSurveyCard" class="card hidden">
-      <h2>Connection Not in Database</h2>
+      <h2>Connection Not in Database(कनेक्शन डेटाबेस में नहीं है)</h2>
 
-      <label for="newConnectionType">Connection Status</label>
+      <label for="newConnectionType">Connection Status(कनेक्शन स्थिति)</label>
       <select id="newConnectionType">
-        <option value="">Select</option>
-        <option value="NOT LEDGERISED">NOT LEDGERISED CONNECTION</option>
-        <option value="THEFT CONNECTION">THEFT CONNECTION</option>
+        <option value="">Select (चुनें)</option>
+        <option value="NOT LEDGERISED">NOT LEDGERISED CONNECTION(लेज़र में दर्ज नहीं कनेक्शन(BCD))</option>
+        <option value="THEFT CONNECTION">THEFT CONNECTION(बिजली चोरी)</option>
       </select>
 
-      <label for="newName">Consumer / Occupant Name</label>
+      <label for="newName">Consumer / Occupant Name(उपभोक्ता/निवासी का नाम)</label>
       <input id="newName" placeholder="Enter name">
 
-      <label for="newFather">Father/Husband Name</label>
+      <label for="newFather">Father/Husband Name(पिता/पति का नाम)</label>
       <input id="newFather" placeholder="Enter father/husband name">
 
-      <label for="newVillage">Village</label>
+      <label for="newFeeder">Feeder(फीडर)</label>
+      <select id="newFeeder">
+        <option value="">Select feeder(फीडर चुनें)</option>
+      </select>
+
+      <label for="newDt">DT(ट्रांसफार्मर)</label>
+      <select id="newDt">
+        <option value="">Select DT(ट्रांसफार्मर चुनें)</option>
+      </select>
+
+      <label for="newVillage">Village(ग्राम)</label>
       <select id="newVillage">
-        <option value="">Select village</option>
-        <option value="__NOT_IN_LIST__">NOT IN THE LIST</option>
+        <option value="">Select village(ग्राम चुनें)</option>
+
+        <option value="__NOT_IN_LIST__">NOT IN THE LIST(सूची में नहीं है)</option>
       </select>
 
-      <label for="newAddress">Complete Address</label>
-      <textarea id="newAddress" rows="3" placeholder="Enter complete address"></textarea>
+      <label for="newAddress">Complete Address(पूरा पता)</label>
+      <textarea id="newAddress" rows="3" placeholder="Enter complete address(पूरा पता दर्ज करें)"></textarea>
 
-      <label for="newNatureOfSupply">Nature of Supply</label>
+      <label for="newNatureOfSupply">Nature of Supply(सप्लाई का प्रकार)</label>
       <select id="newNatureOfSupply">
-      <option value="">Select</option>
-      <option value="DOMESTIC">Domestic</option>
-      <option value="COMMERCIAL">Commercial</option>
-      <option value="TEMPORARY">Temporary</option>
-      <option value="GOVERNMENT">Government</option>
+      <option value="">Select(चुनें)</option>
+      <option value="DOMESTIC">Domestic(घरेलू)</option>
+      <option value="COMMERCIAL">Commercial(कमर्शियल)</option>
+      <option value="TEMPORARY">Temporary(अस्थायी)</option>
+      <option value="INDUSTRIAL">Industrial(चक्की / औद्योगिक)</option>
+      <option value="PRIVATE_SCHOOL">Private School(निजी स्कूल)</option>
+      <option value="GOVERNMENT">Government(सरकारी)</option>
       </select>
-      <label for="newHouseCondition">House Condition</label>
+      <label for="newHouseCondition">House Condition(मकान की स्थिति)</label>
       <select id="newHouseCondition">
-      <option value="">Select</option>
-      <option value="KUTCHA HOUSE">Kutcha House</option>
-      <option value="PUCCA NORMAL HOUSE">Pucca Normal House</option>
-      <option value="PUCCA GOOD HOUSE">Pucca Good House</option>
-      <option value="LUXURY (RICH) HOUSE">Luxury (Rich) House</option>
+      <option value="">Select(चुनें)</option>
+      <option value="KUTCHA HOUSE">Kutcha House(कच्चा घर)</option>
+      <option value="PUCCA NORMAL HOUSE">Pucca Normal House(पक्का सामान्य घर)</option>
+      <option value="PUCCA GOOD HOUSE">Pucca Good House(पक्का अच्छा घर)</option>
+      <option value="LUXURY (RICH) HOUSE">Luxury (Rich) House(शानदार/आलीशान घर)</option>
       </select>
 
-      <label for="newMobile">Mobile Number</label>
+      <label for="newMobile">Mobile Number(मोबाइल नंबर)</label>
       <input id="newMobile" inputmode="numeric" maxlength="10" placeholder="10 digit mobile number">
 
-      <label for="newMeterInstalled">Meter Installed</label>
+      <label for="newMeterInstalled">Meter Installed(मीटर लगा है)</label>
       <select id="newMeterInstalled">
-        <option value="">Select</option>
-        <option value="YES">YES</option>
-        <option value="NO">NO</option>
+        <option value="">Select(चुनें)</option>
+        <option value="YES">YES(हाँ)</option>
+        <option value="NO">NO(नहीं)</option>
       </select>
 
-      <label for="newMeterNo">Meter Number</label>
-      <input id="newMeterNo" placeholder="Enter meter number">
+      <label for="newMeterNo">Meter Number(मीटर नंबर)</label>
+      <input id="newMeterNo" placeholder="Enter meter number(मीटर संख्या डालें)">
 
-      <label for="newCurrentReading">Current Reading</label>
-      <input id="newCurrentReading" inputmode="decimal" placeholder="Enter current reading">
+      <label for="newCurrentReading">Site Reading(स्थल रीडिंग)</label>
+      <input id="newCurrentReading" inputmode="decimal" placeholder="Enter site reading(स्थल रीडिंग दर्ज करें)">
 
-      <label for="newMeterCondition">Meter Condition</label>
+      <label for="newSiteMaxDemand">Site Max Demand(स्थल अधिकतम मांग)</label>
+      <input id="newSiteMaxDemand" inputmode="decimal" placeholder="MD seen on site, optional(स्थल पर MD, वैकल्पिक)">
+
+
+      <label for="newMeterCondition">Meter Condition(मीटर की स्थिति)</label>
       <select id="newMeterCondition">
-        <option value="">Select</option>
-        <option value="OK">OK</option>
-        <option value="DAMAGED">DAMAGED</option>
-        <option value="NOT INSTALLED">NOT INSTALLED</option>
+        <option value="">Select(चुनें)</option>
+        <option value="OK">OK(सही है)</option>
+        <option value="DAMAGED">DAMAGED(खराब है)</option>
+        <option value="NOT INSTALLED">NOT INSTALLED(इंस्टॉल नहीं हुआ है)</option>
       </select>
 
-      <label for="newConnectedLoad">Connected Load</label>
-      <input id="newConnectedLoad" placeholder="Enter connected load">
 
-      <label for="newAcInstalled">AC Installed</label>
+      <label for="newTheftPossibility">Theft Possibility(चोरी की संभावना)</label>
+      <select id="newTheftPossibility">
+        <option value="">Select(चुनें)</option>
+        <option value="DIRECT CABLE WITHOUT CONNECTION">Direct cable without connection(बिना कनेक्शन सीधी केबल)</option>
+        <option value="EXTRA CABLE OTHER THAN SERVICE CABLE">Extra cable other than service cable(सर्विस केबल के अलावा अतिरिक्त केबल)</option>
+        <option value="BYPASS IN SERVICE CABLE">Bypass in service cable(सर्विस केबल में बाईपास)</option>
+        <option value="METER SHUNT DOUBT">Meter shunt doubt(मीटर शंट का संदेह)</option>
+        <option value="NO METER INSTALLED">No meter installed(मीटर नहीं लगा है)</option>
+        <option value="NO THEFT">No theft(चोरी नहीं)</option>
+      </select>
+
+
+      <label for="newConnectedLoad">Connected Load(संयोजित भार)</label>
+      <input id="newConnectedLoad" placeholder="Enter connected load(संयोजित भार दर्ज करें)">
+
+      <label for="newAcInstalled">AC Installed(एसी लगा है)</label>
       <select id="newAcInstalled">
-        <option value="">Select</option>
-        <option value="YES">YES</option>
-        <option value="NO">NO</option>
+        <option value="">Select(चुनें)</option>
+        <option value="YES">YES(हाँ)</option>
+        <option value="NO">NO(नहीं)</option>
       </select>
 
-      <label for="newRemarks">Remarks</label>
-      <textarea id="newRemarks" rows="3" placeholder="Enter remarks"></textarea>
+      <label for="newRemarks">Remarks(टिप्पणी)</label>
+      <textarea id="newRemarks" rows="3" placeholder="Enter remarks(टिप्पणी दर्ज करें)"></textarea>
 
-      <button id="saveNewBtn" class="primary" type="button">SUBMIT SURVEY</button>
+      <button id="saveNewBtn" class="primary" type="button">SUBMIT SURVEY(जमा करें)</button>
       <button id="backFromNewBtn" class="secondary" type="button">BACK TO HOME</button>
       <div id="newSaveStatus" class="status"></div>
     </section>
 
-    
+
 <section id="myCollectionCard" class="card collection-card">
   <div class="collection-header">
-    <div><h2>My Collection</h2><div id="collectionDateLabel" class="collection-date-label"></div></div>
-    <button type="button" id="refreshCollectionBtn" class="secondary-btn collection-refresh">↻ REFRESH</button>
+    <div><h2>My Collection(मेरा कार्य)</h2><div id="collectionDateLabel" class="collection-date-label"></div></div>
+    <button type="button" id="refreshCollectionBtn" class="secondary-btn collection-refresh">↻ REFRESH(रिफ्रेश)</button>
   </div>
 
-  <div class="collection-today-title">Today's Work</div>
+  <div class="collection-today-title">Today's Work(आज का कार्य)</div>
   <div class="collection-stats collection-four">
-    <div class="collection-stat"><strong id="collectionSurveyToday">0</strong><span>Door-to-Door Survey</span></div>
+    <div class="collection-stat"><strong id="collectionSurveyToday">0</strong><span>Door-to-Door Survey </span></div>
     <div class="collection-stat"><strong id="collectionDisconnectionToday">0</strong><span>Disconnection</span></div>
     <div class="collection-stat"><strong id="collectionRecheckToday">0</strong><span>Recheck</span></div>
     <div class="collection-stat"><strong id="collectionPhoneToday">0</strong><span>Phone Calling</span></div>
+    <div class="collection-stat"><strong id="collectionDisconnectionVideoToday">0</strong><span>Disconnection Videos</span></div>
+    <div class="collection-stat"><strong id="collectionRecheckVideoToday">0</strong><span>Recheck Videos</span></div>
+
   </div>
 
   <div class="collection-total-row">
@@ -596,28 +1417,107 @@
     <div class="personal-summary-row"><span>Disconnection</span><b id="collectionDisconnectionTotal">0</b></div>
     <div class="personal-summary-row"><span>Recheck</span><b id="collectionRecheckTotal">0</b></div>
     <div class="personal-summary-row"><span>Phone Calling</span><b id="collectionPhoneTotal">0</b></div>
+    <div class="personal-summary-row"><span>Disconnection Videos</span><b id="collectionDisconnectionVideoTotal">0</b></div>
+    <div class="personal-summary-row"><span>Recheck Videos</span><b id="collectionRecheckVideoTotal">0</b></div>
+
   </div>
 </section>
 
 <section id="uploadCard" class="card">
-  <h2>Upload Status</h2>
+  <h2>Upload Status(अपलोड स्थिति)</h2>
   <div class="upload-summary-grid">
-    <div class="upload-summary-head"><span>Activity</span><span>Saved</span><span>Pending</span></div>
+    <div class="upload-summary-head"><span>Activity</span><span>Saved </span><span>Pending </span></div>
     <div><span>Door-to-Door Survey</span><b id="uploadsurveySaved">0</b><b id="uploadsurveyPending">0</b></div>
     <div><span>Disconnection</span><b id="uploaddisconnectionSaved">0</b><b id="uploaddisconnectionPending">0</b></div>
     <div><span>Recheck</span><b id="uploadrecheckSaved">0</b><b id="uploadrecheckPending">0</b></div>
+    <div><span>Disconnection Videos</span><b id="uploadDisconnectionVideoSaved">0</b><b id="uploadDisconnectionVideoPending">0</b></div>
+    <div><span>Recheck Videos</span><b id="uploadRecheckVideoSaved">0</b><b id="uploadRecheckVideoPending">0</b></div>
+
     <div><span>Phone Calling</span><b id="uploadphoneSaved">0</b><b id="uploadphonePending">0</b></div>
   </div>
   <div class="upload-grand-total">
-    <span>Total Saved</span><b id="savedCount">0</b>
-    <span>Total Pending</span><b id="pendingCount">0</b>
+    <span>Total Saved(कुल सेव)</span><b id="savedCount">0</b>
+    <span>Total Pending(कुल लंबित)</span><b id="pendingCount">0</b>
   </div>
-  <button id="uploadBtn" class="upload">⬆ UPLOAD TO SERVER</button>
-  <button id="syncStatusBtn" class="secondary" type="button">↻ CHECK UPLOAD STATUS</button>
+  <button id="uploadBtn" class="upload">⬆ UPLOAD RECORDS ONLY(रिकॉर्ड अपलोड करें)</button>
+  <button id="syncStatusBtn" class="secondary" type="button">↻ CHECK UPLOAD STATUS(अपलोड स्थिति जाँचें)</button>
   <button id="exportBtn" class="secondary">EXPORT LOCAL DATA</button>
   <div id="uploadStatus" class="status"></div>
   <div id="syncStatus" class="status"></div>
+
+  <div style="margin-top:18px;padding-top:14px;border-top:1px solid #e5e7eb">
+    <h2>Videos(वीडियो)</h2>
+    <div id="videoUploadInfo" class="muted"></div>
+    <div id="videoUploadStatus" class="status"></div>
+    <button id="uploadVideosBtn" class="upload" type="button">⬆ UPLOAD VIDEOS AND RECORDS BOTH(वीडियो अपलोड करें)</button>
+  </div>
 </section>
+
+
+
+<section id="masterUpdateCard" class="card">
+
+  <h2>
+    Master Data(मास्टर डेटा)
+  </h2>
+
+  <p class="muted">
+    Check whether a newer consumer master file is available
+    for your subdivision.
+    (अपने उपखंड के लिए नया उपभोक्ता मास्टर डेटा उपलब्ध है या नहीं, जाँचें।)
+  </p>
+
+  <div
+    id="masterUpdateDetails"
+    class="master-update-details hidden">
+  </div>
+
+  <div
+    id="masterUpdateStatus"
+    class="status">
+  </div>
+
+  <div class="search-line">
+
+    <button
+      id="checkMasterUpdateBtn"
+      class="primary"
+      type="button">
+      CHECK FOR MASTER DATA UPDATE(मास्टर डेटा अपडेट जाँचें)
+    </button>
+
+    <button
+      id="downloadMasterUpdateBtn"
+      class="secondary hidden"
+      type="button">
+      UPDATE MASTER DATA(मास्टर डेटा अपडेट करें)
+    </button>
+
+  </div>
+
+  <div style="margin-top:18px;padding-top:14px;border-top:1px solid #e5e7eb">
+
+
+    <h2>Village, Feeder & DT List(ग्राम, फीडर व डीटी सूची)</h2>
+
+    <div id="villageListInfo" class="muted"></div>
+
+    <div id="villageListStatus" class="status"></div>
+
+    <button
+      id="checkVillageListBtn"
+      class="primary"
+      type="button">
+
+      CHECK AND UPDATE VILLAGE, FEEDER & DT LIST(ग्राम, फीडर व डीटी सूची अपडेट करें)
+    </button>
+
+  </div>
+
+
+
+</section>
+
 
 <section id="dashboardCard" class="card hidden">
   <div class="dashboard-title">
@@ -638,19 +1538,22 @@
     <select id="dashSubstationFilter">
       <option value="">All Substations</option>
     </select>
-
-    <label for="dashVillageFilter">Village</label>
-    <select id="dashVillageFilter">
-      <option value="">All Villages</option>
-    </select>
-
-    <button id="todayDashboardBtn" class="primary" type="button">TODAY</button>
-    <button id="applyDashboardFilterBtn" class="primary">APPLY FILTER</button>
-    <button id="clearDashboardFilterBtn" class="small-btn">CLEAR</button>
+    <div class="dashboard-filter-actions">
+      <div class="dashboard-filter-action-row">
+        <button id="todayDashboardBtn" class="primary" type="button">TODAY</button>
+        <button id="clearDashboardFilterBtn" class="small-btn" type="button">CLEAR</button>
+      </div>
+      <button id="applyDashboardFilterBtn"
+              class="primary dashboard-load-btn"
+              type="button">
+        LOAD DASHBOARD
+      </button>
+    </div>
   </div>
 
   <div class="dashboard-section">
     <h3>Substation-wise Progress</h3>
+
     <div class="muted" style="margin-bottom:8px;">Only users assigned to one substation are included. Multi-substation users are shown only in User-wise Summary.</div>
     <div id="substationReport" class="report-table"><div class="dashboard-empty-state">Apply a filter to load dashboard data.</div></div>
   </div>
@@ -780,37 +1683,168 @@
     <label for="newUserPassword">Password</label>
     <input id="newUserPassword" type="password" placeholder="Set password">
 
-    <label>Substation</label>
-    <div id="newUserSubstations" class="admin-checkbox-grid">Loading substations...</div>
-
     <label for="newUserRole">Role</label>
     <select id="newUserRole">
       <option value="">Select role</option>
     </select>
 
+    <label for="newUserDivision">Division</label>
+    <select id="newUserDivision">
+      <option value="">Select Division</option>
+    </select>
+
+    <div
+      id="newUserDivisionScope"
+      class="admin-scope-info hidden">
+    </div>
+
+    <label for="newUserSubdivision">Subdivision</label>
+    <select id="newUserSubdivision">
+      <option value="">Select Subdivision</option>
+    </select>
+
+    <div
+      id="newUserSubdivisionScope"
+      class="admin-scope-info hidden">
+    </div>
+
+    <label>Substation</label>
+    <div
+      id="newUserSubstations"
+      class="admin-checkbox-grid">
+      Select Division and Subdivision first.
+    </div>
+
+    <div
+      id="newUserScopeInfo"
+      class="admin-scope-info hidden">
+    </div>
+
+
+
     <button id="createUserBtn" class="primary">CREATE USER</button>
     <div id="adminStatus" class="status"></div>
   </div>
 
+
   <h3>Users</h3>
-  <div id="usersTable" class="users-table">Loading...</div>
+
+  <button
+    id="viewUsersBtn"
+    class="secondary"
+    type="button">
+    VIEW USERS
+  </button>
+
+  <div id="usersTable" class="users-table hidden"></div>
+
+
 </section>
-    
+
+
+
+
+<div id="shareModal" class="modal hidden">
+  <div class="modal-box">
+    <h2>Saved(सेव हो गया)</h2>
+    <p id="shareModalText" class="muted"></p>
+    <div id="shareModalStatus" class="status"></div>
+    <button id="shareWhatsAppBtn" class="primary" type="button">SHARE ON WHATSAPP(व्हाट्सऐप पर भेजें)</button>
+    <button id="shareVideoBtn" class="primary hidden" type="button">SHARE VIDEO ON WHATSAPP(वीडियो व्हाट्सऐप पर भेजें)</button>
+    <button id="shareCloseBtn" class="secondary" type="button">CLOSE(बंद करें)</button>
+
+  </div>
+</div>
+
+
+
+<div id="videoRecorderModal" class="modal hidden">
+  <div class="modal-box">
+    <h2>Record Video(वीडियो रिकॉर्ड करें)</h2>
+    <video id="videoRecorderPreview" playsinline muted autoplay style="width:100%;max-height:55vh;background:#000;border-radius:8px"></video>
+    <div id="videoRecorderTimer" style="font-size:20px;font-weight:800;text-align:center;margin-top:8px">0:00 / 2:30</div>
+    <div id="videoRecorderStatus" class="status"></div>
+    <button id="videoStartBtn" class="primary hidden" type="button">START RECORDING(रिकॉर्डिंग शुरू करें)</button>
+    <button id="videoPauseBtn" class="secondary hidden" type="button">PAUSE(रोकें)</button>
+    <button id="videoResumeBtn" class="primary hidden" type="button">RESUME(फिर से शुरू करें)</button>
+    <button id="videoStopBtn" class="primary hidden" type="button" style="background:#b42318">STOP(समाप्त करें)</button>
+    <button id="videoPlayBtn" class="secondary hidden" type="button">PLAY PREVIEW(वीडियो देखें)</button>
+    <button id="videoSaveBtn" class="primary hidden" type="button">USE THIS VIDEO(यह वीडियो उपयोग करें)</button>
+    <button id="videoRetakeBtn" class="secondary hidden" type="button">RETAKE(फिर से रिकॉर्ड करें)</button>
+
+    <button id="videoCancelBtn" class="secondary" type="button">CANCEL(रद्द करें)</button>
+  </div>
+</div>
+
+
+<div id="permissionGate" class="modal hidden">
+  <div class="modal-box">
+    <h2>Permissions Required(अनुमति आवश्यक)</h2>
+    <p class="muted">Allow these permissions to use the app on this device.(इस डिवाइस पर ऐप उपयोग करने के लिए ये अनुमतियाँ दें।)</p>
+    <div id="permissionList" class="confirm-details"></div>
+    <div id="permissionHelp" class="status"></div>
+    <button id="permissionAllowBtn" class="primary" type="button">ALLOW PERMISSIONS(अनुमति दें)</button>
+    <button id="permissionLogoutBtn" class="secondary" type="button">LOGOUT(लॉगआउट)</button>
+  </div>
+</div>
+
+
+<div id="resetPasswordModal" class="modal hidden">
+  <div class="modal-box">
+    <h2>Reset Password(पासवर्ड रीसेट करें)</h2>
+    <p id="resetPasswordFor" class="muted"></p>
+
+    <div id="resetPasswordFields">
+    <label for="resetPasswordNew">New password(नया पासवर्ड)</label>
+    <input id="resetPasswordNew" type="password" autocomplete="new-password" placeholder="At least 6 characters(कम से कम 6 अक्षर)">
+
+    <label for="resetPasswordConfirm">Confirm new password(नया पासवर्ड दोबारा लिखें)</label>
+    <input id="resetPasswordConfirm" type="password" autocomplete="new-password">
+
+    <label style="display:flex;align-items:center;gap:8px;font-weight:400">
+      <input id="resetPasswordShow" type="checkbox" style="width:auto;margin:0">
+      Show password(पासवर्ड दिखाएँ)
+    </label>
+
+    <p class="muted">The user will be logged out on all phones and must log in again with the new password. Records saved on their phone are kept.(उपयोगकर्ता सभी फ़ोन से लॉगआउट हो जाएगा और नए पासवर्ड से दोबारा लॉगिन करेगा। फ़ोन में सेव रिकॉर्ड सुरक्षित रहेंगे।)</p>
+    </div>
+
+    <div id="resetPasswordStatus" class="status"></div>
+
+    <button id="resetPasswordSaveBtn" class="primary" type="button">RESET PASSWORD(पासवर्ड रीसेट करें)</button>
+    <button id="resetPasswordCloseBtn" class="secondary" type="button">CLOSE(बंद करें)</button>
+  </div>
+</div>
+
+
+
 <div id="confirmModal" class="modal hidden">
   <div class="modal-box">
-    <h2 id="confirmTitle">Confirm Survey</h2>
+    <h2 id="confirmTitle">Confirm Survey (सर्वे की पुष्टि करें)</h2>
     <div id="confirmDetails" class="confirm-details"></div>
-    <div class="confirm-warning">Please verify the information before submitting.</div>
+    <div class="confirm-warning">Please verify the information before submitting.(जमा करने से पहले जानकारी की जाँच कर लें।)</div>
     <div class="confirm-actions">
       <button id="cancelConfirmBtn" class="secondary" type="button">CANCEL</button>
-      <button id="confirmSaveBtn" class="primary" type="button">CONFIRM & SAVE</button>
+      <button id="confirmSaveBtn" class="primary" type="button">CONFIRM & SAVE(सेव करें)</button>
     </div>
   </div>
 </div>
 </div>
+
   </main>
+  <footer style="text-align:center;font-size:12px;color:#8a94a6;padding:6px 12px 22px">
+    Developed by Nikhil Jindal
+  </footer>
 </div>
-<script src="app.js?v=15.5-dashboard"></script>
+<script src="./xlsx.full.min.js"
+
+        onerror="this.onerror=null;this.src='https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';"></script>
+
+<script src="./jspdf.umd.min.js"></script>
+<script src="./jspdf.plugin.autotable.min.js"></script>
+
+<script src="app.js?v=17.0"></script>
+
 <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));}</script>
 </body>
 </html>

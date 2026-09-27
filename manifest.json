@@ -1,6 +1,6 @@
 {
-  "name": "Kuthond Field Work",
-  "short_name": "Kuthond Field Work",
+  "name": "Vidyut FieldWork",
+  "short_name": "Vidyut FieldWork",
   "description": "Field operations & Staff Monitoring",
   "start_url": "./",
   "scope": "./",
@@ -57,11 +57,20 @@
     "type": "image/png",
     "purpose": "any"
   },
+
   {
     "src": "icons/icon-512.png",
     "sizes": "512x512",
     "type": "image/png",
     "purpose": "any"
+  },
+
+  {
+    "src": "icons/icon-maskable-512.png",
+    "sizes": "512x512",
+    "type": "image/png",
+    "purpose": "maskable"
   }
-] 
+]
+  
 }
