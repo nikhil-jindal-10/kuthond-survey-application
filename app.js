@@ -1800,11 +1800,15 @@ async function detectMediaHardware() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
       return { camera: false, microphone: false };
     }
+
     const devices = await navigator.mediaDevices.enumerateDevices();
+    const camera = devices.some(d => d.kind === "videoinput");
     return {
-      camera: devices.some(d => d.kind === "videoinput"),
-      microphone: devices.some(d => d.kind === "audioinput")
+      camera: camera,
+      /* Some phones list the microphone only after it is allowed. */
+      microphone: camera || devices.some(d => d.kind === "audioinput")
     };
+
   } catch (e) {
     console.warn("Could not detect camera/microphone", e);
     return { camera: false, microphone: false };
@@ -2009,9 +2013,22 @@ async function requestDevicePermissions() {
         releasePermissionWaiters();
       }, 600);
 
+
     } else {
       showPermissionGate(true);
+
+      /* Not blocked in the app, but the phone still did not allow it. */
+      if (!status.missing.some(i => i.state === "denied")) {
+        const help = $("permissionHelp");
+        help.textContent =
+          "The phone did not allow " + status.missing.map(i => i.label).join(", ") + ". " +
+          "Check Android Settings, then Apps, then Chrome, then Permissions, and allow Camera, Microphone and Location for Chrome. " +
+          "Also make sure the Camera access and Microphone access switches in the quick settings panel are ON. " +
+          "Then tap ALLOW PERMISSIONS again.";
+        help.className = "status error";
+      }
     }
+
 
   } finally {
 
@@ -2960,7 +2977,10 @@ async function openShareModal(record, video) {
   $("shareModalText").textContent =
     what + " for account " + (record.account_id || "") + " is saved. " +
     (video ? "The video is saved in the Download folder as " + video.fileName + ". " : "") +
-    "Tap SHARE ON WHATSAPP to send the details to your group.";
+
+    (video
+      ? "Tap SHARE ON WHATSAPP to send the details and the video together."
+      : "Tap SHARE ON WHATSAPP to send the details to your group.");
 
   setStatus("shareModalStatus", "");
   setShareButtons("details");
@@ -2972,7 +2992,8 @@ function closeShareModal() {
   if ($("shareModal")) $("shareModal").classList.add("hidden");
 }
 
-/* Step 1: the details as a text message. */
+
+/* SHARE ON WHATSAPP: details + video (if any) in one share. */
 async function shareLastActivity() {
 
   const item = lastShareItem;
@@ -2981,22 +3002,30 @@ async function shareLastActivity() {
   const text = buildActivityShareText(item.record);
 
   if (!navigator.share) {
-    setStatus("shareModalStatus",
-      "Sharing is not supported on this device.", "error");
+    setStatus("shareModalStatus", "Sharing is not supported on this device.", "error");
     return;
   }
 
+  const data = { text: text };
+  let withVideo = false;
 
+  if (item.video && item.video.blob) {
+    const file = new File([item.video.blob], item.video.fileName, {
+      type: item.video.contentType || "video/mp4"
+    });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      data.files = [file];
+      withVideo = true;
+    }
+  }
 
   try {
-    await navigator.share({ text: text });
+    await navigator.share(data);
   } catch (e) {
     if (e && e.name === "AbortError") return;   /* user closed the Share sheet */
     console.error(e);
-    setStatus("shareModalStatus",
-      "Could not open sharing. Please try again.", "error");
+    setStatus("shareModalStatus", "Could not open sharing. Please try again.", "error");
     return;
-
   }
 
   if (!item.video || !item.video.blob) {
@@ -3004,38 +3033,28 @@ async function shareLastActivity() {
     return;
   }
 
-  /* Step 2 offered: the video. */
+  /* A few WhatsApp versions drop the text of a shared video: offer it separately. */
   setStatus("shareModalStatus",
-    "Details shared. Do you also want to share the video on WhatsApp?", "ok");
+    withVideo
+      ? "Shared. If the details did not appear with the video, tap SEND DETAILS ONLY."
+      : "Details shared. This device cannot share the video from here; attach it from the Download folder: " + item.video.fileName,
+    withVideo ? "ok" : "error");
   setShareButtons("video");
 }
 
-/* Step 2: the video file. */
+/* SEND DETAILS ONLY: the text message on its own. */
 async function shareLastActivityVideo() {
 
   const item = lastShareItem;
-  if (!item || !item.video || !item.video.blob) return;
-
-  const file = new File([item.video.blob], item.video.fileName, {
-    type: item.video.contentType || "video/mp4"
-  });
-
-  if (!navigator.share || !navigator.canShare || !navigator.canShare({ files: [file] })) {
-    setStatus("shareModalStatus",
-      "This device cannot share the video from here. In WhatsApp, attach it from the Download folder: " +
-      item.video.fileName, "error");
-    return;
-  }
+  if (!item) return;
 
   try {
-    await navigator.share({ files: [file] });
+    await navigator.share({ text: buildActivityShareText(item.record) });
     closeShareModal();
   } catch (e) {
     if (e && e.name === "AbortError") return;
     console.error(e);
-    setStatus("shareModalStatus",
-      "Could not share the video from here. In WhatsApp, attach it from the Download folder: " +
-      item.video.fileName, "error");
+    setStatus("shareModalStatus", "Could not open sharing. Please try again.", "error");
   }
 }
 
@@ -3389,8 +3408,11 @@ async function openDefaulterList() {
 
   try {
     const o = await dlLoadOptions();
-    DL_LISTS.forEach(id => { delete dlSel[id]; });
+
+    dlRestoreFilters();
     dlRefreshCascade(null);
+    dlFixEmptyRestoredLists();
+
     $("dlFilters").classList.remove("hidden");
     setStatus("dlStatusMsg", "");
   } catch (e) {
@@ -3487,7 +3509,9 @@ function dlRow(c) {
   return {
     account: String(c.ACCT_ID || ""),
     name: String(c.NAME || ""),
+
     father: String(c.FATHER_NAME || ""),
+    address: String(c.ADDRESS || ""),
     village: String(c.feeded_village_name || ""),
     sdo: String(c.SDO_CODE || ""),
     substation: String(c.SUBSTATION || ""),
@@ -3689,7 +3713,8 @@ async function downloadDefaulterPdf() {
     const startY = 25 + filterLines.length * 3.5;
 
     const body = result.rows.map((r, i) => [
-      i + 1, r.account, r.name, r.father, r.village, r.substation, r.feeder, r.mrSource,
+
+      i + 1, r.account, r.name, r.father, r.address, r.village, r.substation, r.feeder, r.mrSource,
       r.mobile, r.meter, r.loadText, r.supplyType, formatListDate(r.doc),
       Math.round(r.outstanding).toLocaleString("en-IN"),
       formatListDate(r.lastPay), r.lastPayAmount, ""
@@ -3699,33 +3724,37 @@ async function downloadDefaulterPdf() {
       startY: startY,
       margin: { left: 10, right: 10 },
       head: [[
-        "S.No", "Account", "Name", "Father/Husband", "Village", "Substation", "Feeder", "MR Src",
+
+        "S.No", "Account", "Name", "Father/Husband", "Address", "Village", "Substation", "Feeder", "MR Src",
         "Mobile", "Meter", "Load", "Supply", "DOC", "Outstanding (Rs.)", "Last Pay Date", "Last Pay Amt", "Remarks"
       ]],
       body: body,
       theme: "grid",
 
-      styles: { fontSize: 7, cellPadding: 1.2, overflow: "linebreak", valign: "middle", lineColor: [120, 120, 120], lineWidth: 0.1, textColor: [0, 0, 0] },
-      headStyles: { fillColor: [21, 101, 192], textColor: 255, fontSize: 7 },
+      styles: { fontSize: 6.5, cellPadding: 1, overflow: "linebreak", valign: "middle", lineColor: [120, 120, 120], lineWidth: 0.1, textColor: [0, 0, 0] },
+      headStyles: { fillColor: [21, 101, 192], textColor: 255, fontSize: 6.5 },
       columnStyles: {
-        0: { cellWidth: 8, halign: "right" },
-        1: { cellWidth: 19 },
-        2: { cellWidth: 24 },
-        3: { cellWidth: 21 },
-        4: { cellWidth: 19 },
+        0: { cellWidth: 7, halign: "right" },
+        1: { cellWidth: 17 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 18 },
+        4: { cellWidth: 30 },
         5: { cellWidth: 16 },
-        6: { cellWidth: 17 },
-        7: { cellWidth: 11 },
-        8: { cellWidth: 18 },
+        6: { cellWidth: 14 },
+        7: { cellWidth: 14 },
+        8: { cellWidth: 9 },
         9: { cellWidth: 16 },
-        10: { cellWidth: 10 },
-        11: { cellWidth: 11 },
-        12: { cellWidth: 16 },
-        13: { cellWidth: 18, halign: "right" },
-        14: { cellWidth: 16 },
-        15: { cellWidth: 14, halign: "right" },
-        16: { cellWidth: 18, minCellHeight: 8 }
+        10: { cellWidth: 14 },
+        11: { cellWidth: 8 },
+        12: { cellWidth: 9 },
+        13: { cellWidth: 14 },
+        14: { cellWidth: 15, halign: "right" },
+        15: { cellWidth: 14 },
+        16: { cellWidth: 12, halign: "right" },
+        17: { cellWidth: 20, minCellHeight: 8 }
       },
+
+
       didDrawPage: data => {
         doc.setFontSize(7);
         doc.text(
@@ -3736,7 +3765,10 @@ async function downloadDefaulterPdf() {
       }
     });
 
-    doc.save("Defaulter_List_" + dlFileStamp() + ".pdf");
+
+    const pdfName = "Defaulter_List_" + dlFileStamp() + ".pdf";
+    doc.save(pdfName);
+    rememberListPdf("dl", doc.output("blob"), pdfName, "Defaulter List");
 
     setStatus(
       "dlStatusMsg",
@@ -4248,7 +4280,10 @@ async function downloadDisconnectedUnpaidPdf() {
       }
     });
 
-    doc.save("Disconnected_But_Unpaid_" + dlFileStamp() + ".pdf");
+
+    const pdfName = "Disconnected_But_Unpaid_" + dlFileStamp() + ".pdf";
+    doc.save(pdfName);
+    rememberListPdf("du", doc.output("blob"), pdfName, "Disconnected But Unpaid List");
 
     setStatus(
       "duStatusMsg",
@@ -4506,7 +4541,11 @@ function xlsxToConsumer(row, header) {
     FEEDER:o["feeder"] || "",
     DOC:o["doc"] || "",
       
+
     MR_SOURCE_CD:n["mrsourcecd"] || n["metersourcecd"] || "",
+    CONSUMPTION_PREV_MNTH:n["consumptionprevmnth"] || "",
+    CONSUMPTION_PREV_TO_PREV_MNTH:n["consumptionprevtoprevmnth"] || "",
+
     SBM_MACHINE_ID:n["sbmmachineid"] || ""
   };
 
@@ -4659,10 +4698,39 @@ async function startMasterSetup() {
 
 async function ensureMasterData() {
 
+
   await openMasterDB();
 
-  const count =
+  let count =
     await countMasterConsumers();
+
+  /*
+   * Active store empty, but the other store still holds a master
+   * (the "active" note could not be read): use it instead of
+   * downloading again. Its file id is cleared so CHECK FOR MASTER
+   * DATA UPDATE offers the newest master if this one is older.
+   */
+  if (count === 0) {
+    const other = getInactiveMasterStore();
+    const otherCount = await countMasterConsumers(other);
+    if (otherCount > 0) {
+      state.activeMasterStore = other;
+      await saveMasterMeta(Object.assign({}, getLocalMasterMeta() || {}, {
+        master_file_id: "recovered",
+        consumer_count: otherCount
+      }));
+      count = otherCount;
+    }
+  }
+
+  if (count > 0) {
+    localStorage.setItem("fieldworkMasterImportedOnce", "YES");
+  } else if (localStorage.getItem("fieldworkMasterImportedOnce") === "YES") {
+    /* The phone had a master before: say why it downloads again. */
+    console.warn("Master Data missing on this device; downloading again.");
+    state.masterRemovedNotice = true;
+  }
+
 
   /*
    * If a valid local master already exists,
@@ -4714,13 +4782,17 @@ async function ensureMasterData() {
   state.masterReady =
     false;
 
+
   updateMasterSetupUI(
     "loading",
     0,
-    "Checking assigned Master Data…"
+    state.masterRemovedNotice
+      ? "The Master Data on this phone was removed (the phone may have cleared app storage). Downloading it again…"
+      : "Checking assigned Master Data…"
   );
 
   const masterInfo =
+
     await checkAssignedMaster();
 
   updateMasterSetupUI(
@@ -7264,7 +7336,8 @@ async function searchPhoneConsumer(){
   $("phoneLastPayDate").textContent =formatLastPayDate(c.LAST_PAY_DATE);
   $("phoneLastPayAmount").textContent =c.LAST_PAY_AMOUNT || "";
   if ($("phoneConsumptionCurr")) $("phoneConsumptionCurr").textContent =
-    displayOrUnavailable(c.CONSUMPTION_CURR_MNTH);
+
+    consumptionText(c);
 
   $("phoneOutstanding").textContent=displayOrUnavailable(getConsumerOutstanding(c));
 
@@ -7617,7 +7690,7 @@ function selectRecheckConsumerFromSearch(c){
   $("rcLastPayDate").textContent=formatLastPayDate(c.LAST_PAY_DATE);
   $("rcLastPayAmount").textContent=c.LAST_PAY_AMOUNT||"";
   if ($("rcConsumptionCurr")) $("rcConsumptionCurr").textContent =
-    displayOrUnavailable(c.CONSUMPTION_CURR_MNTH);
+    consumptionText(c);
 
   $("rcMeterNo").textContent=
     displayOrUnavailable(getConsumerMeterNo(c));
@@ -7919,7 +7992,7 @@ function selectDisconnectionConsumerFromSearch(c){
   $("dcLastPayDate").textContent=formatLastPayDate(c.LAST_PAY_DATE);
   $("dcLastPayAmount").textContent=c.LAST_PAY_AMOUNT||"";
   if ($("dcConsumptionCurr")) $("dcConsumptionCurr").textContent =
-    displayOrUnavailable(c.CONSUMPTION_CURR_MNTH);
+    consumptionText(c);
 
 
   $("dcMeterNo").textContent=
@@ -8544,7 +8617,7 @@ function selectConsumerFromSearch(c) {
     c.LAST_PAY_AMOUNT || "";
 
   if ($("dConsumptionCurr")) $("dConsumptionCurr").textContent =
-    displayOrUnavailable(c.CONSUMPTION_CURR_MNTH);
+    consumptionText(c);
 
 
   $("dConnectionStatus").textContent =
@@ -10805,6 +10878,304 @@ $("consumerPaymentResponse").addEventListener("change", () => {
     wrap.classList.add("hidden");
     $("consumerPaymentDate").value = "";
   }
+});
+
+/*
+ * =========================================================
+ * v17.2 ADDITIONS
+ * =========================================================
+ * 1. Keep the screen on while the app is open
+ * 2. SHARE PDF ON WHATSAPP after a list PDF is created
+ * 3. Defaulter List remembers the last filters
+ * 4. Auto upload of records and videos when online
+ * 5. Disconnection / Recheck: details + video in one share
+ * 6. Consumption of the last three months
+ * 7. Account ID boxes: number keyboard, max 10 digits
+ */
+
+/* ---------- 1. keep the screen on ---------- */
+let screenWakeLock = null;
+
+async function keepScreenOn() {
+  if (!("wakeLock" in navigator) || document.visibilityState !== "visible") return;
+  if (screenWakeLock && !screenWakeLock.released) return;
+  try {
+    screenWakeLock = await navigator.wakeLock.request("screen");
+  } catch (e) {
+    console.warn("Screen wake lock not available", e);
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") keepScreenOn();
+});
+document.addEventListener("click", keepScreenOn);
+keepScreenOn();
+
+/* ---------- small message at the bottom of the screen ---------- */
+function showAppToast(text, ms) {
+  let box = $("appToast");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "appToast";
+    box.style.cssText =
+      "position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:100000;" +
+      "max-width:92%;background:#16803c;color:#fff;padding:12px 16px;border-radius:10px;" +
+      "font-size:14px;font-weight:700;box-shadow:0 6px 20px rgba(0,0,0,.25);text-align:center";
+    document.body.appendChild(box);
+  }
+  box.textContent = text;
+  box.classList.remove("hidden");
+  clearTimeout(showAppToast.timer);
+  showAppToast.timer = setTimeout(() => box.classList.add("hidden"), ms || 5000);
+}
+
+/* ---------- 2. SHARE PDF ON WHATSAPP (lists) ---------- */
+const listPdfs = {};
+
+function rememberListPdf(prefix, blob, name, title) {
+  listPdfs[prefix] = { blob: blob, name: name, title: title };
+  if ($(prefix + "SharePdfBtn")) $(prefix + "SharePdfBtn").classList.remove("hidden");
+}
+
+async function shareListPdf(prefix) {
+  const item = listPdfs[prefix];
+  if (!item) return;
+
+  const statusId = prefix + "StatusMsg";
+  const file = new File([item.blob], item.name, { type: "application/pdf" });
+
+  if (!navigator.share || !navigator.canShare || !navigator.canShare({ files: [file] })) {
+    setStatus(statusId, "This device cannot share the PDF from here. Share it from the Download folder: " + item.name, "error");
+    return;
+  }
+
+  try {
+    await navigator.share({ files: [file], title: item.title });
+  } catch (e) {
+    if (e && e.name === "AbortError") return;
+    console.error(e);
+    setStatus(statusId, "Could not open sharing. Share it from the Download folder: " + item.name, "error");
+  }
+}
+
+/* The buttons are added here, so index.html does not change. */
+[["dl", "dlPdfBtn"], ["du", "duPdfBtn"]].forEach(([prefix, pdfBtnId]) => {
+  const pdfBtn = $(pdfBtnId);
+  if (!pdfBtn || $(prefix + "SharePdfBtn")) return;
+  const btn = document.createElement("button");
+  btn.id = prefix + "SharePdfBtn";
+  btn.type = "button";
+  btn.className = "secondary hidden";
+  btn.textContent = "SHARE PDF ON WHATSAPP(व्हाट्सऐप पर पीडीएफ भेजें)";
+  btn.addEventListener("click", () => shareListPdf(prefix));
+  pdfBtn.insertAdjacentElement("afterend", btn);
+});
+
+/* ---------- 3. Defaulter List remembers the last filters ---------- */
+const DL_SAVED_INPUTS = [
+  "dlLoadMode", "dlLoadMin", "dlLoadMax", "dlOutMin", "dlPayMode", "dlLongDate",
+  "dlSinceDate", "dlDocMode", "dlDocFrom", "dlDocTo",
+  "dlSort1", "dlDir1", "dlSort2", "dlDir2", "dlSort3", "dlDir3"
+];
+
+function dlFiltersKey() {
+  return "fieldworkDefaulterFilters:" + String(state.userId || "").trim().toLowerCase();
+}
+
+function dlSaveFilters() {
+  if (!state.userId) return;
+  const lists = {};
+  DL_LISTS.forEach(id => {
+    const sel = dlSel[id];
+    lists[id] = sel ? Array.from(sel) : null;
+  });
+  const inputs = {};
+  DL_SAVED_INPUTS.forEach(id => { if ($(id)) inputs[id] = $(id).value; });
+  try {
+    localStorage.setItem(dlFiltersKey(), JSON.stringify({ lists: lists, inputs: inputs }));
+  } catch (e) {}
+}
+
+function dlReadSavedFilters() {
+  try {
+    return JSON.parse(localStorage.getItem(dlFiltersKey()) || "null");
+  } catch (e) {
+    return null;
+  }
+}
+
+/* Called while the filter lists are (re)built from the master. */
+function dlRestoreFilters() {
+  const saved = dlReadSavedFilters();
+  DL_LISTS.forEach(id => {
+    const values = saved && saved.lists ? saved.lists[id] : null;
+    if (Array.isArray(values)) dlSel[id] = new Set(values);
+    else delete dlSel[id];
+  });
+  if (saved && saved.inputs) {
+    DL_SAVED_INPUTS.forEach(id => {
+      const el = $(id);
+      const v = saved.inputs[id];
+      if (!el || v === undefined || v === null) return;
+      if (el.tagName === "SELECT" && !Array.from(el.options).some(o => o.value === v)) return;
+      el.value = v;
+    });
+  }
+  dlUpdatePayBoxes();
+  dlUpdateLoadBox();
+  dlUpdateDocBox();
+}
+
+/* A remembered choice that no longer exists in the new master goes back to All. */
+function dlFixEmptyRestoredLists() {
+  for (let pass = 0; pass < DL_LISTS.length; pass++) {
+    const empty = DL_LISTS.find(id => dlSel[id] && !dlSel[id].size);
+    if (!empty) return;
+    dlSel[empty] = null;
+    dlRefreshCascade(null);
+  }
+}
+
+if ($("defaulterListCard")) {
+  let saveTimer = null;
+  const later = () => { clearTimeout(saveTimer); saveTimer = setTimeout(dlSaveFilters, 300); };
+  $("defaulterListCard").addEventListener("change", later);
+  $("defaulterListCard").addEventListener("input", later);
+}
+
+/* ---------- 4. auto upload when online ---------- */
+const AUTO_UPLOAD_EVERY_MS = 3 * 60 * 1000;
+const AUTO_UPLOAD_PAUSE_MS = 20 * 60 * 1000;
+let autoUploadRunning = false;
+let autoUploadPausedUntil = { records: 0, videos: 0 };
+
+async function autoUploadPendingCounts() {
+  const records = (await getAllUploadableRecords())
+    .filter(r => String(r.upload_status || "PENDING").toUpperCase() === "PENDING").length;
+  let videos = 0;
+  try { videos = (await getPendingVideos()).length; } catch (e) {}
+  return { records: records, videos: videos };
+}
+
+async function autoUploadIfOnline() {
+
+  if (autoUploadRunning || !state.sessionToken || !state.db || !state.masterReady) return;
+  if (!navigator.onLine || document.visibilityState !== "visible") return;
+  if (uploadRecordsRunning || videoUploadRunning) return;
+
+  autoUploadRunning = true;
+
+  try {
+    const now = Date.now();
+    const before = await autoUploadPendingCounts();
+    const doRecords = before.records > 0 && now >= autoUploadPausedUntil.records;
+    const doVideos = before.videos > 0 && now >= autoUploadPausedUntil.videos;
+    if (!doRecords && !doVideos) return;
+
+    if (doRecords) await uploadPending();
+    if (doVideos && state.sessionToken) await uploadPendingVideos();
+
+    const after = await autoUploadPendingCounts();
+    const records = Math.max(0, before.records - after.records);
+    const videos = Math.max(0, before.videos - after.videos);
+
+    /* No progress (no signal, daily video limit...): wait before trying again. */
+    if (doRecords && !records) autoUploadPausedUntil.records = Date.now() + AUTO_UPLOAD_PAUSE_MS;
+    if (doVideos && !videos) autoUploadPausedUntil.videos = Date.now() + AUTO_UPLOAD_PAUSE_MS;
+
+    if (records || videos) {
+      const parts = [];
+      if (records) parts.push(records.toLocaleString("en-IN") + (records === 1 ? " record" : " records"));
+      if (videos) parts.push(videos.toLocaleString("en-IN") + (videos === 1 ? " video" : " videos"));
+      showAppToast("Auto uploaded: " + parts.join(" and ") + ". (स्वतः अपलोड हो गया)");
+    }
+  } catch (e) {
+    console.warn("Auto upload failed", e);
+  } finally {
+    autoUploadRunning = false;
+  }
+}
+
+window.addEventListener("online", () => {
+  autoUploadPausedUntil = { records: 0, videos: 0 };
+  setTimeout(autoUploadIfOnline, 5000);
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") setTimeout(autoUploadIfOnline, 5000);
+});
+setInterval(autoUploadIfOnline, AUTO_UPLOAD_EVERY_MS);
+setTimeout(autoUploadIfOnline, 20000);
+
+/* ---------- 5. details + video in one share ---------- */
+if ($("shareVideoBtn")) {
+  $("shareVideoBtn").textContent = "SEND DETAILS ONLY(केवल विवरण भेजें)";
+}
+
+/* ---------- 6. consumption of three months ---------- */
+function consumptionText(c) {
+  const v = x => {
+    const s = String(x == null ? "" : x).trim();
+    return s || "—";
+  };
+  return v(c.CONSUMPTION_CURR_MNTH) + " / " + v(c.CONSUMPTION_PREV_MNTH) + " / " + v(c.CONSUMPTION_PREV_TO_PREV_MNTH);
+}
+
+["dConsumptionCurr", "phoneConsumptionCurr", "rcConsumptionCurr", "dcConsumptionCurr"].forEach(id => {
+  const label = $(id) && $(id).previousElementSibling;
+  if (label) {
+    label.textContent =
+      "Consumption: Current / Previous / Before Previous Month(खपत: चालू / पिछला / उससे पिछला माह)";
+  }
+});
+
+/* ---------- 7. Account ID boxes: number keyboard, max 10 digits ---------- */
+const ACCOUNT_ID_MAX_DIGITS = 10;
+
+function setAccountIdInputMode(input, isAccount) {
+  if (!input) return;
+  if (isAccount) {
+    input.setAttribute("inputmode", "numeric");
+    input.setAttribute("pattern", "[0-9]*");
+    input.setAttribute("maxlength", String(ACCOUNT_ID_MAX_DIGITS));
+    input.dataset.digitsOnly = "1";
+  } else {
+    input.setAttribute("inputmode", "text");
+    input.removeAttribute("pattern");
+    input.removeAttribute("maxlength");
+    delete input.dataset.digitsOnly;
+  }
+}
+
+function digitsOnlyGuard(input) {
+  if (!input || input.dataset.digitsGuard) return;
+  input.dataset.digitsGuard = "1";
+  input.addEventListener("input", () => {
+    if (input.dataset.digitsOnly !== "1") return;
+    const clean = input.value.replace(/\D/g, "").slice(0, ACCOUNT_ID_MAX_DIGITS);
+    if (clean !== input.value) input.value = clean;
+  });
+}
+
+[
+  ["searchType", "accountId"],
+  ["disconnectSearchType", "disconnectAccountId"],
+  ["recheckSearchType", "recheckAccountId"]
+].forEach(([selectId, inputId]) => {
+  const select = $(selectId), input = $(inputId);
+  if (!select || !input) return;
+  digitsOnlyGuard(input);
+  const apply = () => setAccountIdInputMode(input, select.value === "ACCOUNT");
+  select.addEventListener("change", apply);
+  input.addEventListener("focus", apply);   /* forms reset the choice without a change event */
+  apply();
+});
+
+["phoneAccountId", "activityAccountId"].forEach(id => {
+  const input = $(id);
+  if (!input) return;
+  digitsOnlyGuard(input);
+  setAccountIdInputMode(input, true);
 });
 
 
