@@ -3856,6 +3856,81 @@ const DU_SORT_FIELDS = [
 ];
 
 const DU_DEFAULT_SORT = [["userLabel", "asc"], ["villageName", "asc"], ["outstanding", "desc"], ["days", "desc"]];
+DU_SORT_FIELDS.splice(6, 0, ["promise", "Promise Date (phone list)"]);
+
+/*
+ * v19.9: the same screen shows two lists:
+ *   DISC  - Disconnected But Unpaid (latest disconnection of each account)
+ *   PHONE - Phone Promise Not Kept: latest phone call with a promise date; the date
+ *           has passed and the master shows no payment since the call.
+ */
+let duMode = "DISC";
+const duCache = { DISC: null, PHONE: null };
+const DU_MODE = {
+  DISC: {
+    title: "Disconnected But Unpaid List(विच्छेदित किन्तु अदत्त सूची)",
+    intro: "Disconnected consumers whose last payment in the Master Data is before the disconnection date. Uses the latest disconnection of each account. Consumer details come from the Master Data on this phone.(वे विच्छेदित उपभोक्ता जिनका मास्टर डेटा में अंतिम भुगतान विच्छेदन तिथि से पहले है। उपभोक्ता विवरण इस फ़ोन के मास्टर डेटा से लिया जाता है।)",
+    statusHead: "Disconnection Status(विच्छेदन स्थिति)",
+    dateLabel: "Disconnection Date(विच्छेदन तिथि)",
+    action: "disconnection_list", key: "disconnections",
+    loading: "Loading disconnections…",
+    statusName: "Disconnection Status", dateName: "Disconnection date",
+    dateSort: "Disconnection Date", daysSort: "Days Since Disconnection",
+    pdfTitle: "DISCONNECTED BUT UNPAID LIST – Fieldwork App",
+    file: "Disconnected_But_Unpaid_", share: "Disconnected But Unpaid List",
+    loaded: (n, k) => n + " disconnected accounts loaded; " + k + " have not paid since disconnection."
+  },
+  PHONE: {
+    title: "Phone Promise Not Kept List(फ़ोन पर वादा, भुगतान नहीं सूची)",
+    intro: "Consumers who promised on a phone call to pay by a date: the date has passed and the Master Data shows no payment since the call. Uses the latest call of each account.(फ़ोन कॉल पर भुगतान की तारीख दी, तारीख निकल गई और कॉल के बाद मास्टर डेटा में भुगतान नहीं।)",
+    statusHead: "Call Response(कॉल प्रतिक्रिया)",
+    dateLabel: "Call Date(कॉल तिथि)",
+    action: "phone_promise_list", key: "calls",
+    loading: "Loading phone calls…",
+    statusName: "Call Response", dateName: "Call date",
+    dateSort: "Call Date", daysSort: "Days Since Call",
+    pdfTitle: "PHONE PROMISE NOT KEPT LIST – Fieldwork App",
+    file: "Phone_Promise_Not_Kept_", share: "Phone Promise Not Kept List",
+    loaded: (n, k) => n + " phone promises loaded; " + k + " promise dates have passed without payment."
+  }
+};
+const duText = () => DU_MODE[duMode];
+
+/* Phone Calling responses are saved in Hindi; the PDF font has no Hindi letters. */
+const PHONE_RESPONSE_EN = {
+  "गलत नंबर": "Wrong number",
+  "कॉल रिसीव नहीं कर रहे": "Not receiving call",
+  "कुछ दिन बाद जमा करेंगे": "Will pay after some days",
+  "जमा नहीं करेंगे": "Will not pay",
+  "बिल गलत है": "Bill is wrong",
+  "घर पर बात करेंगे": "Will discuss at home",
+  "JE/SDO से बात करेंगे": "Will talk to JE/SDO",
+  "डबल कनेक्शन है": "Double connection",
+  "PD होना है": "PD to be done",
+  "बिल जमा है": "Bill already paid",
+  "कार्यालय आएंगे": "Will come to office",
+  "नंबर स्विच ऑफ है": "Number switched off",
+  "नंबर नॉट रीचेबल है": "Number not reachable",
+  "इनकमिंग कॉल उपलब्ध नहीं है": "Incoming calls not available"
+};
+
+function duSetModeTexts() {
+  const t = duText();
+  [["duTitle", t.title], ["duIntro", t.intro], ["duStatusHeadText", t.statusHead], ["duDateLabel", t.dateLabel]]
+    .forEach(([id, text]) => { if ($(id)) $(id).textContent = text; });
+  for (let i = 1; i <= 4; i++) {
+    const sel = $("duSort" + i);
+    if (!sel) continue;
+    Array.from(sel.options).forEach(o => {
+      if (o.value === "discDate") o.textContent = t.dateSort;
+      if (o.value === "days") o.textContent = t.daysSort;
+      if (o.value === "status") o.textContent = t.statusName;
+    });
+  }
+  /* Phone list: only "will pay after some days" calls have a promise date, so no response filter. */
+  if ($("duStatusBox")) $("duStatusBox").classList.toggle("hidden", duMode === "PHONE");
+  if (typeof applyLanguage === "function") applyLanguage();
+}
 
 let duRows = null;       /* unpaid rows after the last load */
 let duLoadedCount = 0;   /* disconnections received from the server */
@@ -3910,6 +3985,7 @@ function duBuildRow(disc, master) {
     villageName: String(c.feeded_village_name || ""),
     discDate: String(disc.date || ""),
     days: duDaysSince(disc.date),
+    promise: String(disc.promise_date || ""),
     status: dlVal(disc.status),
     userLabel: dlVal(userId ? userId + (disc.user_name ? " - " + disc.user_name : "") : ""),
 
@@ -3924,6 +4000,15 @@ function duBuildRow(disc, master) {
     mr: dlVal(c.MR_SOURCE_CD),
     sbm: dlVal(c.SBM_MACHINE_ID)
   });
+}
+
+/* Phone list: kept when the promise date has passed and nothing was paid since the call. */
+function duKeep(row) {
+  if (!duIsUnpaid(row)) return false;
+  if (duMode !== "PHONE") return true;
+  const now = new Date();
+  const today = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+  return !!row.promise && row.promise < today;
 }
 
 /* Unpaid = never paid, or last payment before the disconnection date. */
@@ -3994,14 +4079,27 @@ function duAfterListChange(id) {
   if (DU_LIST_IDS.indexOf(id) < DU_LIST_IDS.length - 1) duRefreshCascade(id);
 }
 
-async function openDisconnectedUnpaidList() {
+async function openDisconnectedUnpaidList(mode) {
 
   if (!state.masterReady || !state.masterDb) {
     alert("Master Data is not ready yet. Please wait for the master to finish loading.");
     return;
   }
 
+  mode = mode === "PHONE" ? "PHONE" : "DISC";
+  if (mode !== duMode && duBusy) return;
+  if (mode !== duMode) {
+    duCache[duMode] = duRows;
+    duMode = mode;
+    duRows = duCache[mode];
+    DU_LIST_IDS.forEach(id => { delete dlSel[id]; });
+    if (duRows) duRefreshCascade(null);
+    $("duFilters").classList.toggle("hidden", !duRows);
+    setStatus("duStatusMsg", "");
+  }
+
   duInitSortSelects();
+  duSetModeTexts();
   duUpdateBoxes();
   showMainView("disconnectedUnpaidCard");
   window.scrollTo(0, 0);
@@ -4024,11 +4122,13 @@ async function loadDisconnectedUnpaid() {
   if (button) button.disabled = true;
 
   setStatus("duStatusMsg", "");
-  showGlobalLoading("Loading disconnections…", "Fetching the disconnection list from the server.");
+  const t = duText();
+  const mode = duMode;
+  showGlobalLoading(t.loading, "Fetching the list from the server.");
 
   try {
 
-    const result = await serverPostWithRetry("disconnection_list");
+    const result = await serverPostWithRetry(t.action);
 
     if (!result.success) {
       if (result.code === "AUTH") {
@@ -4039,19 +4139,21 @@ async function loadDisconnectedUnpaid() {
       throw new Error(result.message || "Could not load disconnections.");
     }
 
-    const list = Array.isArray(result.disconnections) ? result.disconnections : [];
+    const list = Array.isArray(result[t.key]) ? result[t.key] : [];
 
     updateGlobalLoading(
       "Matching with Master Data…",
-      "Adding consumer details for " + list.length.toLocaleString("en-IN") + " disconnected accounts."
+      "Adding consumer details for " + list.length.toLocaleString("en-IN") + " accounts."
     );
 
     const master = await duLookupMaster(list.map(d => d.account_id));
+    if (mode !== duMode) return;              /* the other list was opened meanwhile */
 
     duLoadedCount = list.length;
     duRows = list
       .map(d => duBuildRow(d, master.get(String(d.account_id || "").trim())))
-      .filter(duIsUnpaid);
+      .filter(duKeep);
+    duCache[duMode] = duRows;
 
     DU_LIST_IDS.forEach(id => { delete dlSel[id]; });
     duRefreshCascade(null);
@@ -4059,8 +4161,7 @@ async function loadDisconnectedUnpaid() {
 
     setStatus(
       "duStatusMsg",
-      duLoadedCount.toLocaleString("en-IN") + " disconnected accounts loaded; " +
-      duRows.length.toLocaleString("en-IN") + " have not paid since disconnection.",
+      t.loaded(duLoadedCount.toLocaleString("en-IN"), duRows.length.toLocaleString("en-IN")),
       "ok"
     );
 
@@ -4097,7 +4198,7 @@ function duReadFilters() {
 
   return {
     /* disconnection part */
-    discStatus: dlChosen("duStatus"),
+    discStatus: duMode === "PHONE" ? null : dlChosen("duStatus"),
     user: dlChosen("duUser"),
     dateFrom: dateBetween ? ($("duDateFrom").value || "") : "",
     dateTo: dateBetween ? ($("duDateTo").value || "") : "",
@@ -4177,13 +4278,14 @@ function duFilterSummary(f) {
   const label = v => v === DL_BLANK ? "BLANK" : v;
   const list = (name, set) => set ? name + ": " + Array.from(set).map(label).join(", ") : "";
   const sortText = f.sort.length
-    ? "Sorted by: " + f.sort.map(s => (DU_SORT_FIELDS.find(x => x[0] === s.field) || ["", s.field])[1] + (s.dir === "desc" ? " (high to low)" : "")).join(", then ")
+    ? "Sorted by: " + f.sort.map(s => ({ discDate: duText().dateSort, days: duText().daysSort, status: duText().statusName }[s.field] ||
+        (DU_SORT_FIELDS.find(x => x[0] === s.field) || ["", s.field])[1]) + (s.dir === "desc" ? " (high to low)" : "")).join(", then ")
     : "";
   const own = [
-    list("Disconnection Status", f.discStatus),
+    list(duText().statusName, f.discStatus),
     list("User", f.user),
     f.dateFrom || f.dateTo
-      ? "Disconnection date: " + (f.dateFrom ? formatListDate(f.dateFrom) : "any") + " to " + (f.dateTo ? formatListDate(f.dateTo) : "any") : ""
+      ? duText().dateName + ": " + (f.dateFrom ? formatListDate(f.dateFrom) : "any") + " to " + (f.dateTo ? formatListDate(f.dateTo) : "any") : ""
   ].filter(Boolean);
 
   /* Master filters described the same way as in the Defaulter List. */
@@ -4227,7 +4329,7 @@ async function downloadDisconnectedUnpaidPdf() {
     const text = v => (v === DL_BLANK ? "" : String(v == null ? "" : v));
 
     doc.setFontSize(14);
-    doc.text("DISCONNECTED BUT UNPAID LIST – Fieldwork App", 10, 12);
+    doc.text(duText().pdfTitle, 10, 12);
 
     doc.setFontSize(8);
     doc.text(
@@ -4238,15 +4340,24 @@ async function downloadDisconnectedUnpaidPdf() {
       10, 18
     );
 
-    const filterLines = doc.splitTextToSize("Filters: " + duFilterSummary(f), 277);
+    /* The PDF font has no Hindi letters: keep the English part of "ENGLISH(हिंदी)" values. */
+    const en = v => {
+      let s = text(v);
+      if (PHONE_RESPONSE_EN[s.trim()]) return PHONE_RESPONSE_EN[s.trim()];
+      if (/[\u0900-\u097F]/.test(s)) {
+        s = s.replace(/\([^()]*[\u0900-\u097F][^()]*\)/g, "").replace(/[\u0900-\u097F]+/g, "").replace(/\s{2,}/g, " ").trim();
+      }
+      return s;
+    };
+    const filterLines = doc.splitTextToSize("Filters: " + en(duFilterSummary(f)), 277);
     doc.text(filterLines, 10, 23);
     const startY = 25 + filterLines.length * 3.5;
 
     const body = result.rows.map((r, i) => [
       i + 1, r.account, r.name, r.father, r.address, r.villageName, r.substation, r.feeder,
       r.meter, r.mobile, r.loadText, r.supplyType,
-      formatListDate(r.discDate), text(r.status), text(r.userLabel),
-      r.days === null ? "" : r.days,
+      formatListDate(r.discDate), en(r.status), en(r.userLabel),
+      duMode === "PHONE" ? formatListDate(r.promise) : (r.days === null ? "" : r.days),
       r.inMaster ? Math.round(r.outstanding).toLocaleString("en-IN") : "",
       formatListDate(r.lastPay), r.lastPayAmount, ""
     ]);
@@ -4256,7 +4367,10 @@ async function downloadDisconnectedUnpaidPdf() {
       margin: { left: 10, right: 10 },
       head: [[
         "S.No", "Account", "Name", "Father/Husband", "Address", "Village", "Substation", "Feeder",
-        "Meter", "Mobile", "Load", "Supply", "Disc. Date", "Disc. Status", "User", "Days",
+        "Meter", "Mobile", "Load", "Supply",
+        duMode === "PHONE" ? "Call Date" : "Disc. Date",
+        duMode === "PHONE" ? "Response" : "Disc. Status", "User",
+        duMode === "PHONE" ? "Promise" : "Days",
         "Outstanding (Rs.)", "Last Pay Date", "Last Pay Amt", "Remarks"
       ]],
       body: body,
@@ -4281,11 +4395,11 @@ async function downloadDisconnectedUnpaidPdf() {
         12: { cellWidth: 13 },
         13: { cellWidth: 14 },
         14: { cellWidth: 15 },
-        15: { cellWidth: 7, halign: "right" },
+        15: duMode === "PHONE" ? { cellWidth: 14 } : { cellWidth: 7, halign: "right" },
         16: { cellWidth: 14, halign: "right" },
         17: { cellWidth: 13 },
         18: { cellWidth: 11, halign: "right" },
-        19: { cellWidth: 15, minCellHeight: 8 }
+        19: { cellWidth: duMode === "PHONE" ? 8 : 15, minCellHeight: 8 }
       },
       didDrawPage: () => {
         doc.setFontSize(7);
@@ -4298,9 +4412,9 @@ async function downloadDisconnectedUnpaidPdf() {
     });
 
 
-    const pdfName = "Disconnected_But_Unpaid_" + dlFileStamp() + ".pdf";
+    const pdfName = duText().file + dlFileStamp() + ".pdf";
     doc.save(pdfName);
-    rememberListPdf("du", doc.output("blob"), pdfName, "Disconnected But Unpaid List");
+    rememberListPdf("du", doc.output("blob"), pdfName, duText().share);
 
     setStatus(
       "duStatusMsg",
@@ -4618,6 +4732,8 @@ function updateMasterSetupUI(
   showContinue=false
 ) {
 
+
+  masterNoticeProgress(status, message);       /* v19.8: "do not minimize, about N min" */
 
   /* v18.4: background master update: no setup screen, just a progress line. */
   if (state.masterQuiet) {
@@ -5827,6 +5943,178 @@ function base64ToUint8Array(base64) {
  * - returns exactly totalSize bytes (Uint8Array),
  *   the same type the existing import already receives
  */
+/*
+ * =========================================================
+ * v19.8 MONTHLY MASTER: BACKGROUND DOWNLOAD + CLEAR NOTICE
+ * =========================================================
+ * Chrome on Android (Background Fetch): the monthly master downloads
+ * like a normal file download, with a notification, even when the app
+ * is minimized or the screen is off. The service worker keeps the file
+ * in the cache "fieldwork-master-bg" until the app loads it.
+ * Anywhere else, or if that fails, it downloads in the app as before,
+ * and a notice says: do not minimize the app, about N minutes left.
+ */
+const MASTER_BG_CACHE = "fieldwork-master-bg";
+const MASTER_BG_STALL_MS = 120000;          /* no progress for 2 minutes while the app is open -> in-app download */
+const MASTER_IMPORT_MB_PER_SEC = 0.7;       /* rough loading speed, only for the "about N min" text */
+
+function masterBgId(info) {
+  return "master-" + String(info.master_file_id || "").replace(/[^A-Za-z0-9]+/g, "-").slice(-100);
+}
+
+function masterBgUrl(id) {
+  return new URL("./__master-bg/" + encodeURIComponent(id), location.href).href;
+}
+
+/* The file of a finished background download (right size), or null. */
+async function masterBgCached(info, totalSize) {
+  try {
+    if (!("caches" in window)) return null;
+    const cache = await caches.open(MASTER_BG_CACHE);
+    const res = await cache.match(masterBgUrl(masterBgId(info)));
+    if (!res) return null;
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.length === totalSize) return bytes;
+    await cache.delete(masterBgUrl(masterBgId(info)));       /* wrong size: not usable */
+  } catch (e) {
+    console.warn("Background master cache", e);
+  }
+  return null;
+}
+
+async function masterBgClear() {
+  try { if ("caches" in window) await caches.delete(MASTER_BG_CACHE); } catch (e) {}
+}
+
+function minutesText(seconds) {
+  const m = Math.max(1, Math.ceil(seconds / 60));
+  return "about " + m + " min" + (m === 1 ? "" : "s");
+}
+
+/* The notice under the header (stays until the master is loaded or fails). */
+function masterNotice(text, kind) {
+  let el = $("masterNotice");
+  if (!el) {
+    /* v19.9: a small line between the "Logged in as" card and the first card below it */
+    const card = $("loggedUserName") && $("loggedUserName").closest(".card");
+    if (!card) return;
+    el = document.createElement("div");
+    el.id = "masterNotice";
+    el.setAttribute("role", "status");
+    card.insertAdjacentElement("afterend", el);
+  }
+  if (!text) { el.classList.add("hidden"); return; }
+  const colors = {
+    warn: "background:#fff7df;border:1px solid #e09a00;color:#6b3b00",
+    info: "background:#e0f7f4;border:1px solid #0d9488;color:#0f5f58",
+    error: "background:#fde8e8;border:1px solid #d92d20;color:#8a1c12"
+  };
+  el.style.cssText = "margin:0 0 12px;padding:6px 10px;border-radius:8px;font-size:12px;" +
+    "font-weight:600;line-height:1.35;" + (colors[kind] || colors.warn);
+  el.textContent = text;
+  el.classList.remove("hidden");
+}
+
+const masterLoadTimer = { started: 0, pct: 0 };
+
+/* Turns the download / loading progress into the notice (called from updateMasterSetupUI). */
+function masterNoticeProgress(status, message) {
+  if (status === "ready" || status === "error") { masterNotice(""); masterLoadTimer.started = 0; return; }
+  if (status !== "loading") return;
+  const m = String(message || "").match(/^Importing Master Data… (\d+)%/);
+  if (!m) return;
+  const pct = Number(m[1]);
+  if (!masterLoadTimer.started || pct < masterLoadTimer.pct) {
+    masterLoadTimer.started = Date.now();
+  }
+  masterLoadTimer.pct = pct;
+  const elapsed = (Date.now() - masterLoadTimer.started) / 1000;
+  const left = pct >= 3 && elapsed > 2 ? elapsed * (100 - pct) / pct : 60;
+  masterNotice("Loading new monthly master " + pct + "% — keep the app open, " + minutesText(left) + " left. " +
+    "(ऐप खुला रखें)", "warn");
+}
+
+/* In-app download progress -> notice with minutes left (download + loading). */
+function masterNoticeDownload(received, totalSize, startedAt) {
+  const elapsed = (Date.now() - startedAt) / 1000;
+  const speed = elapsed > 3 && received > 512 * 1024 ? received / elapsed : 0.5 * 1024 * 1024;
+  const left = (totalSize - received) / speed + totalSize / (MASTER_IMPORT_MB_PER_SEC * 1024 * 1024);
+  const pct = Math.min(100, Math.round(100 * received / Math.max(totalSize, 1)));
+  masterNotice("New monthly master downloading " + pct + "% — do not minimize the app, " + minutesText(left) + " left. " +
+    "(ऐप मिनिमाइज़ न करें)", "warn");
+}
+
+/*
+ * Background download (Chrome on Android). Returns the file bytes, or null
+ * when the browser cannot do it or it failed (then the app downloads it itself).
+ */
+async function masterBgDownload(info, totalSize, label) {
+  const ready = await masterBgCached(info, totalSize);
+  if (ready) return ready;                                   /* finished while the app was closed */
+
+  if (!("serviceWorker" in navigator) || !window.BackgroundFetchManager || !info.download_url) return null;
+
+  let reg = null;
+  try {
+    reg = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise(resolve => setTimeout(() => resolve(null), 4000))
+    ]);
+  } catch (e) { reg = null; }
+  if (!reg || !reg.backgroundFetch) return null;
+
+  const id = masterBgId(info);
+  let bg = null;
+  try {
+    bg = await reg.backgroundFetch.get(id);
+    if (!bg) {
+      bg = await reg.backgroundFetch.fetch(id, [info.download_url], {
+        title: "Fieldwork App: monthly Master Data",
+        downloadTotal: totalSize,
+        icons: [{ src: "./icons/icon-192.png", sizes: "192x192", type: "image/png" }]
+      });
+    }
+  } catch (e) {
+    console.warn("Background download not possible here", e);
+    return null;
+  }
+
+  let lastBytes = -1;
+  let lastMoveAt = Date.now();
+  let successAt = 0;
+
+  while (true) {
+    const done = await masterBgCached(info, totalSize);
+    if (done) return done;
+
+    if (bg.result === "failure") {
+      console.warn("Background master download failed:", bg.failureReason);
+      return null;
+    }
+    if (bg.result === "success") {
+      if (!successAt) successAt = Date.now();
+      if (Date.now() - successAt > 20000) return null;       /* saved file not usable */
+    }
+
+    if (bg.downloaded !== lastBytes) {
+      lastBytes = bg.downloaded;
+      lastMoveAt = Date.now();
+    } else if (document.visibilityState === "visible" && Date.now() - lastMoveAt > MASTER_BG_STALL_MS) {
+      try { await bg.abort(); } catch (e) {}
+      return null;                                           /* stuck: download in the app instead */
+    }
+
+    const pct = Math.min(100, Math.round(100 * (bg.downloaded || 0) / Math.max(totalSize, 1)));
+    const text = "New monthly master downloading in background " + pct + "% — you may minimize; " +
+      "open the app when done to load it. (बैकग्राउंड में डाउनलोड)";
+    masterNotice(text, "info");
+    updateMasterSetupUI("loading", 0,
+      `Downloading ${label} in the background… ${formatBytes(bg.downloaded || 0)} / ${formatBytes(totalSize)}`);
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+}
+
 /* Change this when xlsxToConsumer reads new columns: phones then reload the master once. */
 const MASTER_PARSER_VERSION = "4";
 const MASTER_R2_MAX_ATTEMPTS = 3;
@@ -5839,6 +6127,13 @@ async function downloadMasterFromR2(
 
   const label =
     masterInfo.file_name || "Master Data";
+
+  /* v19.8: a finished background download, or one started now (Chrome on Android) */
+  const bgBytes = await masterBgDownload(masterInfo, totalSize, label);
+  if (bgBytes) {
+    await masterBgClear();                     /* the bytes are in memory now; free the space */
+    return bgBytes;
+  }
 
   let lastError = null;
 
@@ -5939,6 +6234,8 @@ async function downloadMasterFromR2Once(
         response.body.getReader();
 
       let lastUiUpdate = 0;
+      const startedAt = Date.now();
+      masterNoticeDownload(0, totalSize, startedAt);
 
       while (true) {
 
@@ -5962,6 +6259,7 @@ async function downloadMasterFromR2Once(
 
         if (now - lastUiUpdate > 500) {
           lastUiUpdate = now;
+          masterNoticeDownload(received, totalSize, startedAt);
           updateMasterSetupUI(
             "loading",
             0,
@@ -10670,7 +10968,8 @@ if ($("openDefaulterListBtn")) {
 
 /* Disconnected But Unpaid List (guarded: page may not have it) */
 if ($("openDisconnectedUnpaidBtn")) {
-  $("openDisconnectedUnpaidBtn").addEventListener("click", openDisconnectedUnpaidList);
+  $("openDisconnectedUnpaidBtn").addEventListener("click", () => openDisconnectedUnpaidList("DISC"));
+  if ($("openPhonePromiseBtn")) $("openPhonePromiseBtn").addEventListener("click", () => openDisconnectedUnpaidList("PHONE"));
   $("duBackBtn").addEventListener("click", closeDisconnectedUnpaidList);
   $("duLoadBtn").addEventListener("click", loadDisconnectedUnpaid);
   $("duPreviewBtn").addEventListener("click", previewDisconnectedUnpaid);
@@ -11531,10 +11830,13 @@ async function backgroundMasterUpdate(remote) {
   try {
     const buffer = await downloadAssignedMaster(remote);
     const count = await importMasterIntoPending(buffer, remote);
+    masterNotice("");
     showAppToast("New Master Data loaded: " + count.toLocaleString("en-IN") + " consumers. (नया मास्टर डेटा)");
   } catch (e) {
     /* free the half-imported copy; the current master stays in use */
     try { await clearMasterConsumers(getInactiveMasterStore()); } catch (x) {}
+    masterNotice("New monthly master could not be downloaded; current data still works, it will try again. " +
+      "(पुराना डेटा चालू है)", "error");
     throw e;
   } finally {
     state.masterQuiet = false;

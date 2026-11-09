@@ -8,7 +8,7 @@
  * and show it on the open after that.
  */
 
-const CACHE_VERSION = "v19.7";
+const CACHE_VERSION = "v20";
 const CACHE_PREFIX = "fieldwork-pwa-";
 const CACHE = CACHE_PREFIX + CACHE_VERSION;
 
@@ -128,4 +128,43 @@ self.addEventListener("fetch", event => {
 
     return res;
   })());
+});
+
+/*
+ * v19.8: monthly master downloaded in the background (Chrome on Android).
+ * The finished file waits in the cache "fieldwork-master-bg" (not removed
+ * by new app versions) until the app loads it and deletes it.
+ */
+const MASTER_BG_CACHE = "fieldwork-master-bg";
+
+async function tellApp(message) {
+  const list = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  list.forEach(c => c.postMessage(message));
+}
+
+self.addEventListener("backgroundfetchsuccess", event => {
+  event.waitUntil((async () => {
+    const bg = event.registration;
+    const records = await bg.matchAll();
+    const cache = await caches.open(MASTER_BG_CACHE);
+    for (const record of records) {
+      const res = await record.responseReady;
+      if (res && res.ok) {
+        await cache.put(new Request("./__master-bg/" + encodeURIComponent(bg.id)), res);
+      }
+    }
+    await event.updateUI({ title: "Master Data downloaded. Open the Fieldwork App to load it." });
+    await tellApp({ type: "master-bg", id: bg.id, result: "success" });
+  })());
+});
+
+self.addEventListener("backgroundfetchfail", event => {
+  event.waitUntil((async () => {
+    await event.updateUI({ title: "Master Data download failed. Open the Fieldwork App to try again." });
+    await tellApp({ type: "master-bg", id: event.registration.id, result: "failure" });
+  })());
+});
+
+self.addEventListener("backgroundfetchclick", event => {
+  event.waitUntil(self.clients.openWindow("./"));
 });

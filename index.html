@@ -684,6 +684,10 @@
         DISCONNECTED BUT UNPAID LIST(विच्छेदित किन्तु अदत्त सूची)
         <small>Disconnected consumers who have not paid since, needs internet(विच्छेदन के बाद भुगतान न करने वाले उपभोक्ता, इंटरनेट आवश्यक)</small>
       </button>
+      <button id="openPhonePromiseBtn" class="survey-type-btn" type="button" style="margin-top:10px">
+        PHONE PROMISE BUT NOT PAID LIST(फ़ोन पर वादा, भुगतान नहीं सूची)
+        <small>Promised on a phone call, the date has passed, not paid yet, needs internet(फ़ोन पर तारीख दी, तारीख निकल गई, भुगतान नहीं, इंटरनेट आवश्यक)</small>
+      </button>
     </section>
 
 
@@ -929,8 +933,8 @@
     </section>
 
     <section id="disconnectedUnpaidCard" class="card hidden">
-      <h2>Disconnected But Unpaid List(विच्छेदित किन्तु अदत्त सूची)</h2>
-      <p class="muted">Disconnected consumers whose last payment in the Master Data is before the disconnection date. Uses the latest disconnection of each account. Consumer details come from the Master Data on this phone.(वे विच्छेदित उपभोक्ता जिनका मास्टर डेटा में अंतिम भुगतान विच्छेदन तिथि से पहले है। उपभोक्ता विवरण इस फ़ोन के मास्टर डेटा से लिया जाता है।)</p>
+      <h2 id="duTitle">Disconnected But Unpaid List(विच्छेदित किन्तु अदत्त सूची)</h2>
+      <p id="duIntro" class="muted">Disconnected consumers whose last payment in the Master Data is before the disconnection date. Uses the latest disconnection of each account. Consumer details come from the Master Data on this phone.(वे विच्छेदित उपभोक्ता जिनका मास्टर डेटा में अंतिम भुगतान विच्छेदन तिथि से पहले है। उपभोक्ता विवरण इस फ़ोन के मास्टर डेटा से लिया जाता है।)</p>
 
       <button id="duLoadBtn" class="secondary" type="button">LOAD / REFRESH FROM SERVER(सर्वर से लोड करें)</button>
 
@@ -938,7 +942,7 @@
         <p class="muted">Tap a filter to open it. All options are selected by default. Each filter shows only the options that exist under the filters above it.(फ़िल्टर खोलने के लिए टैप करें। शुरू में सभी विकल्प चुने होते हैं। हर फ़िल्टर में केवल वही विकल्प दिखते हैं जो ऊपर के फ़िल्टर में उपलब्ध हैं।)</p>
 
       <div id="duStatusBox" class="dl-filter">
-        <button type="button" class="dl-filter-head" data-target="duStatus">Disconnection Status(विच्छेदन स्थिति)<span id="duStatusSummary" class="dl-summary">All</span></button>
+        <button type="button" class="dl-filter-head" data-target="duStatus"><span id="duStatusHeadText">Disconnection Status(विच्छेदन स्थिति)</span><span id="duStatusSummary" class="dl-summary">All</span></button>
         <div id="duStatus" class="dl-checklist hidden"></div>
       </div>
       <div id="duUserBox" class="dl-filter">
@@ -982,7 +986,7 @@
         <div id="duSbm" class="dl-checklist hidden"></div>
       </div>
 
-        <label for="duDateMode">Disconnection Date(विच्छेदन तिथि)</label>
+        <label id="duDateLabel" for="duDateMode">Disconnection Date(विच्छेदन तिथि)</label>
         <select id="duDateMode">
           <option value="ALL">All(सभी)</option>
           <option value="BETWEEN">Between dates(तारीखों के बीच)</option>
@@ -2011,9 +2015,9 @@
 <script src="./jspdf.umd.min.js"></script>
 <script src="./jspdf.plugin.autotable.min.js"></script>
 
-<script src="app.js?v=19.7"></script>
-<script src="progress.js?v=19.7"></script>
-<script src="consumer-view.js?v=19.7"></script>
+<script src="app.js?v=20"></script>
+<script src="progress.js?v=20"></script>
+<script src="consumer-view.js?v=20"></script>
 
 <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));}</script>
 </body>
