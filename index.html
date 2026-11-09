@@ -5,7 +5,8 @@
 <meta name="google" content="notranslate">
   
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#1565c0">
+<meta name="theme-color" content="#0f766e">
+
 <title>Fieldwork App</title>
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -492,6 +493,7 @@
       <div class="logged-user">
         Logged in as(लॉगिन उपयोगकर्ता): <b id="loggedUserName"></b>
         <button id="dashboardBtn" class="logout">DASHBOARD(डैशबोर्ड)</button>
+        <button id="progressBtn" class="logout">PROGRESS(प्रगति)</button>
         <button id="adminBtn" class="logout hidden">ADMIN(एडमिन)</button>
         <button id="homeBtn" class="logout">HOME(होम)</button>
         <button id="logoutBtn" class="logout">LOGOUT(लॉगआउट)</button>
@@ -575,6 +577,7 @@
         <div><span>Last Pay Date(अंतिम भुगतान दिनांक)</span><b id="phoneLastPayDate"></b></div>
         <div><span>Last Pay Amount(अंतिम भुगतान राशि)</span><b id="phoneLastPayAmount"></b></div>
         <div><span>Current Month Consumption(चालू माह की खपत)</span><b id="phoneConsumptionCurr"></b></div>
+        <div><span>Last Bill Date (Bill Basis)(अंतिम बिल दिनांक (बिल आधार))</span><b id="phoneLastBill"></b></div>
       </div>
 
       <div id="phoneFormFields" class="hidden">
@@ -621,6 +624,44 @@
       </div>
     </section>
 
+    <section id="consumerLookupModuleCard" class="card">
+      <h2>Consumer Details(उपभोक्ता विवरण)</h2>
+      <p class="muted">Search any consumer and view the basic details from the Master Data on this phone. Works offline.(इस फ़ोन के मास्टर डेटा से किसी भी उपभोक्ता को खोजें और मूल विवरण देखें। बिना इंटरनेट भी काम करता है।)</p>
+      <button id="openConsumerLookupBtn" class="survey-type-btn" type="button">
+        SEARCH CONSUMER(उपभोक्ता खोजें)
+        <small>By account ID, name, father name, mobile or meter number(खाता संख्या, नाम, पिता का नाम, मोबाइल या मीटर नंबर से)</small>
+      </button>
+    </section>
+
+    <section id="consumerLookupCard" class="card hidden">
+      <div class="pg-top">
+        <h2>Consumer Details(उपभोक्ता विवरण)</h2>
+        <button id="clBackBtn" class="small-btn" type="button">BACK(वापस)</button>
+      </div>
+      <label for="clSearchType">Search By(इसके द्वारा खोजें)</label>
+      <select id="clSearchType">
+        <option value="ACCOUNT">Account ID(खाता संख्या)</option>
+        <option value="NAME">Consumer Name(उपभोक्ता नाम)</option>
+        <option value="FATHER_NAME">Father Name(पिता का नाम)</option>
+        <option value="MOBILE">Mobile Number(मोबाइल नंबर)</option>
+        <option value="METER">Meter Number(मीटर नंबर)</option>
+      </select>
+      <label for="clSearchValue">Search Value(खोज मान)</label>
+      <div class="search-line">
+        <input id="clSearchValue" autocomplete="off" placeholder="Enter account ID">
+        <button id="clSearchBtn" class="primary" type="button">SEARCH(खोजें)</button>
+      </div>
+      <div class="pg-filters">
+        <div><label for="clSdo">SDO(उपखंड)</label><select id="clSdo"><option value="">All</option></select></div>
+        <div><label for="clSub">Substation(उपकेंद्र)</label><select id="clSub"><option value="">All</option></select></div>
+        <div><label for="clFeeder">Feeder(फीडर)</label><select id="clFeeder"><option value="">All</option></select></div>
+        <div><label for="clVillage">Village(गाँव)</label><select id="clVillage"><option value="">All</option></select></div>
+      </div>
+      <div id="clStatus" class="status"></div>
+      <div id="clResults" class="search-results hidden"></div>
+      <div id="clDetails" class="hidden"></div>
+    </section>
+
     <section id="accountActivityModuleCard" class="card">
       <h2>Account Activity History(खाता गतिविधि इतिहास)</h2>
       <p class="muted">View all recorded activities for an Account ID.(किसी खाता संख्या की दर्ज सभी गतिविधियाँ देखें।)</p>
@@ -629,6 +670,7 @@
         <small>Search local records and global records when online(ऑनलाइन होने पर स्थानीय एवं सर्वर रिकॉर्ड खोजें)</small>
       </button>
     </section>
+
 
     <section id="masterListsModuleCard" class="card">
       <h2>Lists from Master Data(मास्टर डेटा से सूचियाँ)</h2>
@@ -646,6 +688,129 @@
 
 
 
+
+    <section id="progressCard" class="card hidden">
+      <style>
+        .pg-top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+        .pg-top h2{margin:0}
+        .pg-asof{font-size:12px;color:#5d7178;margin:6px 0 10px}
+        .pg-filters{display:grid;grid-template-columns:1fr 1fr;gap:2px 10px}
+        .pg-filters label,.pg-sw-label{margin:8px 0 4px;font-size:12px;font-weight:700}
+        .pg-filters select{padding:10px;font-size:14px}
+        .pg-seg{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 6px}
+        .pg-seg button{flex:1 1 auto;padding:8px 10px;border:1px solid #0d9488;background:#fff;color:#0f766e;border-radius:999px;font-size:12px;font-weight:700}
+        .pg-seg button.on{background:#0d9488;color:#fff}
+        .pg-section{margin-top:20px;border-top:1px solid #e2e8f0;padding-top:12px}
+        .pg-section h3{font-size:15px;margin:0 0 8px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+        .pg-note{font-size:12px;color:#5d7178;margin:10px 0 6px}
+        .pg-scroll{overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px}
+        table.pg-table{border-collapse:collapse;width:100%;font-size:12.5px}
+        .pg-table th,.pg-table td{padding:7px 8px;border-bottom:1px solid #edf2f7;text-align:right;white-space:nowrap}
+        .pg-table th:first-child,.pg-table td:first-child{text-align:left;position:sticky;left:0;background:#fff;max-width:160px;overflow:hidden;text-overflow:ellipsis}
+        .pg-table thead th{background:#f0fdfa;color:#0f766e;font-weight:700}
+        .pg-table thead th:first-child{background:#f0fdfa}
+        .pg-table tr.total td{font-weight:800;background:#f8fafc}
+        .pg-up{color:#15803d;font-weight:700}
+        .pg-down{color:#b42318;font-weight:700}
+        .pg-filters select{min-width:0}
+      </style>
+
+      <div class="pg-top">
+        <h2>Progress(प्रगति)</h2>
+        <button id="pgCloseBtn" class="small-btn" type="button">BACK(वापस)</button>
+      </div>
+      <div id="pgAsOf" class="pg-asof"></div>
+
+      <div id="pgFilters"></div>
+
+      <div class="pg-sw-label">Connections(कनेक्शन)</div>
+      <div id="pgGroup" class="pg-seg">
+        <button type="button" data-v="ALL">All(सभी)</button>
+        <button type="button" data-v="G">Govt(सरकारी)</button>
+        <button type="button" data-v="N">Non-Govt(गैर-सरकारी)</button>
+        <button type="button" data-v="GN">Govt + Non-Govt(सरकारी + गैर-सरकारी)</button>
+        <button type="button" data-v="P">PTW(निजी नलकूप)</button>
+      </div>
+      <div class="pg-sw-label">Meter(मीटर)</div>
+      <div id="pgMeter" class="pg-seg">
+        <button type="button" data-v="ALL">All(सभी)</button>
+        <button type="button" data-v="S">Smart(स्मार्ट)</button>
+        <button type="button" data-v="N">Non-Smart(सामान्य)</button>
+      </div>
+      <div class="pg-sw-label">Show by(स्तर)</div>
+      <div id="pgLevel" class="pg-seg">
+        <button type="button" data-v="sdo">SDO(उपखंड)</button>
+        <button type="button" data-v="sub">Substation(उपकेंद्र)</button>
+        <button type="button" data-v="feeder">Feeder(फीडर)</button>
+        <button type="button" data-v="village">Village(गाँव)</button>
+      </div>
+      <div class="pg-sw-label">Compare with last month(पिछले माह से तुलना)</div>
+      <div id="pgCompare" class="pg-seg">
+        <button type="button" data-v="OFF">Off(बंद)</button>
+        <button type="button" data-v="ON">On(चालू)</button>
+      </div>
+
+      <div class="pg-section">
+        <h3>Revenue realised(राजस्व वसूली)</h3>
+        <label for="pgFromDate">Day-wise from(इस तारीख से दिनवार)</label>
+        <input id="pgFromDate" type="date">
+        <div id="pgRevenue"></div>
+      </div>
+
+      <div class="pg-section">
+        <h3>Disconnection drive(विच्छेदन अभियान)
+          <button id="pgDriveRefreshBtn" class="small-btn" type="button">REFRESH(रीफ्रेश)</button></h3>
+        <div class="pg-filters">
+          <div><label for="pgDriveFrom">Visits from(भ्रमण तिथि से)</label><input id="pgDriveFrom" type="date"></div>
+          <div><label for="pgDriveTo">Visits to(भ्रमण तिथि तक)</label><input id="pgDriveTo" type="date"></div>
+        </div>
+        <div id="pgStatusMsg" class="status"></div>
+        <div id="pgDrive"></div>
+        <div class="pg-dl-row">
+          <div class="pg-dl-name">DOWNLOAD LIST: TIME GIVEN BUT NOT YET PAID(सूची डाउनलोड करें: समय दिया पर अभी तक भुगतान नहीं)</div>
+          <div class="pg-dl-btns">
+            <button id="pgListTgBtn" class="secondary" type="button">PDF</button>
+            <button id="pgListTgXlsBtn" class="secondary" type="button">EXCEL</button>
+          </div>
+        </div>
+        <div class="pg-dl-row">
+          <div class="pg-dl-name">DOWNLOAD LIST: PAID AT VISIT BUT NOT ACTUALLY PAID(सूची डाउनलोड करें: मौके पर भुगतान बताया पर वास्तव में भुगतान नहीं)</div>
+          <div class="pg-dl-btns">
+            <button id="pgListPvBtn" class="secondary" type="button">PDF</button>
+            <button id="pgListPvXlsBtn" class="secondary" type="button">EXCEL</button>
+          </div>
+        </div>
+
+
+        <button id="pgSharePdfBtn" class="secondary hidden" type="button">SHARE PDF ON WHATSAPP(व्हाट्सऐप पर पीडीएफ भेजें)</button>
+      </div>
+
+      <div class="pg-section">
+        <h3>Turn up: consumers who paid this month(टर्न अप: इस माह भुगतान करने वाले)</h3>
+        <div id="pgTurnUp"></div>
+      </div>
+
+      <div class="pg-section">
+        <h3>Billing(बिलिंग)</h3>
+        <div id="pgBilling"></div>
+      </div>
+
+      <div class="pg-section">
+        <h3>Meter read remark, billed this month(मीटर रीडिंग टिप्पणी)</h3>
+        <div id="pgRemark"></div>
+      </div>
+
+      <div class="pg-section">
+        <h3>Bill basis, billed this month(बिल आधार)</h3>
+        <div id="pgBasis"></div>
+      </div>
+
+      <div class="pg-section">
+        <h3>Unpaid and never paid(बकाया एवं कभी भुगतान नहीं)</h3>
+        <p class="pg-note">Unpaid: In Service / TD consumers with outstanding above ₹0 and no payment this month. Never paid: no payment or last payment before 2010.(अदत्त: इस माह भुगतान नहीं। कभी भुगतान नहीं: 2010 से पहले या कभी नहीं।)</p>
+        <div id="pgUnpaid"></div>
+      </div>
+    </section>
 
     <section id="defaulterListCard" class="card hidden">
       <style>
@@ -942,6 +1107,7 @@
         <div><span>Last Pay Date(अंतिम भुगतान दिनांक)</span><b id="dcLastPayDate"></b></div>
         <div><span>Last Pay Amount(अंतिम भुगतान राशि)</span><b id="dcLastPayAmount"></b></div>
         <div><span>Current Month Consumption(चालू माह की खपत)</span><b id="dcConsumptionCurr"></b></div>
+        <div><span>Last Bill Date (Bill Basis)(अंतिम बिल दिनांक (बिल आधार))</span><b id="dcLastBill"></b></div>
       </div>
 
       <div id="disconnectFormFields" class="hidden">
@@ -1052,6 +1218,7 @@
         <div><span>Last Pay Date(अंतिम भुगतान दिनांक)</span><b id="rcLastPayDate"></b></div>
         <div><span>Last Pay Amount(अंतिम भुगतान राशि)</span><b id="rcLastPayAmount"></b></div>
         <div><span>Current Month Consumption(चालू माह की खपत)</span><b id="rcConsumptionCurr"></b></div>
+        <div><span>Last Bill Date (Bill Basis)(अंतिम बिल दिनांक (बिल आधार))</span><b id="rcLastBill"></b></div>
 
 
       </div>
@@ -1156,6 +1323,7 @@
         <div><span>Last Pay Date(अंतिम भुगतान दिनांक)</span><b id="dLastPayDate"></b></div>
         <div><span>Last Pay Amount(अंतिम भुगतान राशि)</span><b id="dLastPayAmount"></b></div>
         <div><span>Current Month Consumption(चालू माह की खपत)</span><b id="dConsumptionCurr"></b></div>
+        <div><span>Last Bill Date (Bill Basis)(अंतिम बिल दिनांक (बिल आधार))</span><b id="dLastBill"></b></div>
 
 
       </div>
@@ -1843,7 +2011,9 @@
 <script src="./jspdf.umd.min.js"></script>
 <script src="./jspdf.plugin.autotable.min.js"></script>
 
-<script src="app.js?v=17.2"></script>
+<script src="app.js?v=19.7"></script>
+<script src="progress.js?v=19.7"></script>
+<script src="consumer-view.js?v=19.7"></script>
 
 <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));}</script>
 </body>

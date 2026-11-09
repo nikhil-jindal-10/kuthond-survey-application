@@ -1065,8 +1065,9 @@ function showMainView(view) {
   });
 
   if (view === "home") {
-  
-    ["surveyTypeCard","fieldWorkModulesCard","accountActivityModuleCard","masterListsModuleCard","phoneCallingModuleCard","myCollectionCard","uploadCard","masterUpdateCard"].forEach(id => {
+
+    ["surveyTypeCard","fieldWorkModulesCard","consumerLookupModuleCard","accountActivityModuleCard","progressModuleCard","masterListsModuleCard","phoneCallingModuleCard","myCollectionCard","uploadCard","masterUpdateCard"].forEach(id => {
+
       const el=$(id);
       if (el) el.classList.remove("hidden");
     });
@@ -2254,9 +2255,9 @@ async function openVideoRecorder(type) {
     videoRecorder.stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: { ideal: "environment" },
-        width: { ideal: 640 },
-        height: { ideal: 480 },
-        frameRate: { ideal: 15, max: 20 }
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 20, max: 24 }
       },
       audio: true
     });
@@ -2289,7 +2290,7 @@ function startVideoRecording() {
     recorder = new MediaRecorder(
       videoRecorder.stream,
       Object.assign(
-        { videoBitsPerSecond: 350000, audioBitsPerSecond: 32000 },
+        { videoBitsPerSecond: 650000, audioBitsPerSecond: 48000 },
         mime ? { mimeType: mime } : {}
       )
     );
@@ -2696,6 +2697,8 @@ async function uploadOneVideo(video, onProgress) {
 
   const link = await serverPostWithRetry("video_upload_url", {
     record_id: video.record_id,
+    account_id: video.account_id,
+    video_user_id: video.user_id,
     activity_type: video.activity_type,
     size_bytes: video.size_bytes,
     content_type: video.content_type,
@@ -2984,6 +2987,13 @@ async function openShareModal(record, video) {
 
   setStatus("shareModalStatus", "");
   setShareButtons("details");
+
+  /* Open WhatsApp sharing straight away while the SAVE tap still allows it.
+     If the phone does not allow it (or the share is closed), the Saved screen opens once. */
+  if (navigator.share && navigator.userActivation && navigator.userActivation.isActive) {
+    if (await shareLastActivity(true)) return;
+  }
+
   $("shareModal").classList.remove("hidden");
 }
 
@@ -2993,54 +3003,60 @@ function closeShareModal() {
 }
 
 
-/* SHARE ON WHATSAPP: details + video (if any) in one share. */
-async function shareLastActivity() {
 
+/*
+ * SHARE ON WHATSAPP: details + video (if any) in one share.
+ * auto = true when called straight after SAVE.
+ * Returns true when the share went through (then the Saved screen is not needed).
+ */
+async function shareLastActivity(auto) {
+
+  auto = auto === true;   /* the button passes its click event here */
   const item = lastShareItem;
-  if (!item) return;
-
-  const text = buildActivityShareText(item.record);
+  if (!item) return false;
 
   if (!navigator.share) {
-    setStatus("shareModalStatus", "Sharing is not supported on this device.", "error");
-    return;
+    if (!auto) setStatus("shareModalStatus", "Sharing is not supported on this device.", "error");
+    return false;
   }
 
-  const data = { text: text };
-  let withVideo = false;
+  const data = { text: buildActivityShareText(item.record) };
+  let videoMissing = false;
 
   if (item.video && item.video.blob) {
     const file = new File([item.video.blob], item.video.fileName, {
       type: item.video.contentType || "video/mp4"
     });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      data.files = [file];
-      withVideo = true;
-    }
+    if (navigator.canShare && navigator.canShare({ files: [file] })) data.files = [file];
+    else videoMissing = true;
   }
+
+  /* This phone cannot attach the video here: show the screen with the file name instead. */
+  if (auto && videoMissing) return false;
 
   try {
     await navigator.share(data);
   } catch (e) {
-    if (e && e.name === "AbortError") return;   /* user closed the Share sheet */
+    if (e && e.name === "AbortError") return false;   /* Share sheet closed: the Saved screen opens once */
     console.error(e);
-    setStatus("shareModalStatus", "Could not open sharing. Please try again.", "error");
-    return;
+    if (!auto) setStatus("shareModalStatus", "Could not open sharing. Please try again.", "error");
+    return false;
   }
 
-  if (!item.video || !item.video.blob) {
-    closeShareModal();
-    return;
+  if (videoMissing) {
+    setStatus("shareModalStatus",
+      "Details shared. This phone cannot share the video from here; attach it from the Download folder: " + item.video.fileName,
+      "error");
+    return false;
   }
 
-  /* A few WhatsApp versions drop the text of a shared video: offer it separately. */
-  setStatus("shareModalStatus",
-    withVideo
-      ? "Shared. If the details did not appear with the video, tap SEND DETAILS ONLY."
-      : "Details shared. This device cannot share the video from here; attach it from the Download folder: " + item.video.fileName,
-    withVideo ? "ok" : "error");
-  setShareButtons("video");
+  closeShareModal();
+  return true;
 }
+
+
+
+
 
 /* SEND DETAILS ONLY: the text message on its own. */
 async function shareLastActivityVideo() {
@@ -4227,7 +4243,7 @@ async function downloadDisconnectedUnpaidPdf() {
     const startY = 25 + filterLines.length * 3.5;
 
     const body = result.rows.map((r, i) => [
-      i + 1, r.account, r.name, r.father, r.villageName, r.substation, r.feeder,
+      i + 1, r.account, r.name, r.father, r.address, r.villageName, r.substation, r.feeder,
       r.meter, r.mobile, r.loadText, r.supplyType,
       formatListDate(r.discDate), text(r.status), text(r.userLabel),
       r.days === null ? "" : r.days,
@@ -4239,36 +4255,37 @@ async function downloadDisconnectedUnpaidPdf() {
       startY: startY,
       margin: { left: 10, right: 10 },
       head: [[
-        "S.No", "Account", "Name", "Father/Husband", "Village", "Substation", "Feeder",
+        "S.No", "Account", "Name", "Father/Husband", "Address", "Village", "Substation", "Feeder",
         "Meter", "Mobile", "Load", "Supply", "Disc. Date", "Disc. Status", "User", "Days",
         "Outstanding (Rs.)", "Last Pay Date", "Last Pay Amt", "Remarks"
       ]],
       body: body,
       theme: "grid",
 
-      styles: { fontSize: 6.5, cellPadding: 1, overflow: "linebreak", valign: "middle", lineColor: [120, 120, 120], lineWidth: 0.1, textColor: [0, 0, 0] },
+      styles: { fontSize: 6, cellPadding: 1, overflow: "linebreak", valign: "middle", lineColor: [120, 120, 120], lineWidth: 0.1, textColor: [0, 0, 0] },
 
-      headStyles: { fillColor: [21, 101, 192], textColor: 255, fontSize: 6.5 },
+      headStyles: { fillColor: [21, 101, 192], textColor: 255, fontSize: 6 },
       columnStyles: {
-        0: { cellWidth: 7, halign: "right" },
-        1: { cellWidth: 17 },
-        2: { cellWidth: 20 },
-        3: { cellWidth: 18 },
-        4: { cellWidth: 16 },
+        0: { cellWidth: 6, halign: "right" },
+        1: { cellWidth: 16 },
+        2: { cellWidth: 18 },
+        3: { cellWidth: 16 },
+        4: { cellWidth: 27 },
         5: { cellWidth: 14 },
-        6: { cellWidth: 14 },
-        7: { cellWidth: 14 },
-        8: { cellWidth: 16 },
-        9: { cellWidth: 9 },
-        10: { cellWidth: 10 },
-        11: { cellWidth: 14 },
-        12: { cellWidth: 16 },
-        13: { cellWidth: 17 },
-        14: { cellWidth: 8, halign: "right" },
-        15: { cellWidth: 15, halign: "right" },
-        16: { cellWidth: 14 },
-        17: { cellWidth: 12, halign: "right" },
-        18: { cellWidth: 16, minCellHeight: 8 }
+        6: { cellWidth: 12 },
+        7: { cellWidth: 12 },
+        8: { cellWidth: 13 },
+        9: { cellWidth: 15 },
+        10: { cellWidth: 8 },
+        11: { cellWidth: 8 },
+        12: { cellWidth: 13 },
+        13: { cellWidth: 14 },
+        14: { cellWidth: 15 },
+        15: { cellWidth: 7, halign: "right" },
+        16: { cellWidth: 14, halign: "right" },
+        17: { cellWidth: 13 },
+        18: { cellWidth: 11, halign: "right" },
+        19: { cellWidth: 15, minCellHeight: 8 }
       },
       didDrawPage: () => {
         doc.setFontSize(7);
@@ -4528,9 +4545,10 @@ function xlsxToConsumer(row, header) {
     CURRENT_READING:n["currentreading"] || n["closereading"] || "",
     MOBILE_NUMBER:n["mobilenumber"] || n["mobileno"] || "",
     
-    LAST_PAY_DATE:o["last_pay_date"] || "",
+    /* New master: UPDATED_LAST_PAY_*; older masters: LAST_PAY_* */
+    LAST_PAY_DATE:o["updated_last_pay_date"] || o["last_pay_date"] || "",
 
-    LAST_PAY_AMOUNT:o["last_pay_amount"] || "",
+    LAST_PAY_AMOUNT:o["updated_last_pay_amount"] || o["last_pay_amount"] || "",
 
     /* Optional column: masters without it still import. */
     CONSUMPTION_CURR_MNTH:o["consumption_curr_mnth"] || "",
@@ -4546,10 +4564,25 @@ function xlsxToConsumer(row, header) {
     CONSUMPTION_PREV_MNTH:n["consumptionprevmnth"] || "",
     CONSUMPTION_PREV_TO_PREV_MNTH:n["consumptionprevtoprevmnth"] || "",
 
-    SBM_MACHINE_ID:n["sbmmachineid"] || ""
+    SBM_MACHINE_ID:n["sbmmachineid"] || "",
+
+    /* v18: last bill + Progress tab fields (optional columns) */
+    LAST_BILL_DATE:n["lastbilldate"] || "",
+    BILL_BASIS:n["billbasis"] || "",
+    METER_READ_REMARK:n["meterreadremark"] || "",
+    THIS_MONTH_TOTAL_PAY_AMT:n["thismonthtotalpayamt"] || "",
+    MASTER_TOTAL_PAY_AMT:n["mastertotalpayamt"] || "",
+    MASTER_LAST_PAY_DATE:n["masterlastpaydate"] || "",
+    MASTER_LAST_PAY_AMOUNT:n["masterlastpayamount"] || "",
+    BILLING_MONTH:n["billingmonth"] || "",
+    MASTER_MONTH:n["mastermonth"] || "",
+    REPORT_DATE:n["reportdate"] || "",
+    BASE_ID:n["baseid"] || ""
   };
 
-  c._acct_norm=String(c.ACCT_ID||"").replace(/\D/g,"");
+
+
+  c._acct_norm=String(c.ACCT_ID||"").replace(/\D/g,"").replace(/^0+/,"");
   c._meter_norm=String(c.METER_NO||"").toUpperCase().replace(/\s+/g,"");
 
   return c;
@@ -4585,6 +4618,12 @@ function updateMasterSetupUI(
   showContinue=false
 ) {
 
+
+  /* v18.4: background master update: no setup screen, just a progress line. */
+  if (state.masterQuiet) {
+    masterQuietProgress(status, count, message);
+    return;
+  }
 
   const card=$("masterSetupCard");
   if (!card) return;
@@ -4893,7 +4932,8 @@ async function checkAndUpdateMasterData() {
       ) ===
       String(
         remote.master_file_id || ""
-      )
+      ) &&
+      String(local.parser_version || "") === MASTER_PARSER_VERSION
     ) {
 
       if (status) {
@@ -4920,6 +4960,21 @@ async function checkAndUpdateMasterData() {
           <div><b>Source:</b> ${masterSourceLabel(remote)}</div>
           `;
 
+      }
+
+      /* v18.7: the same tap also downloads new daily updates. */
+      if (status) {
+        status.textContent = "Master Data is up to date. Checking daily updates…";
+      }
+
+      await syncMasterUpdates(true, true);
+
+      const synced = getLocalMasterMeta() || {};
+
+      if (status) {
+        status.textContent = synced.base_id
+          ? "Master Data is up to date. " + updatesSummaryText(synced) + "."
+          : "Master Data is already up to date.";
       }
 
       return;
@@ -5088,7 +5143,8 @@ async function performMasterUpdate() {
       ) ===
       String(
         remote.master_file_id || ""
-      )
+      ) &&
+      String(local.parser_version || "") === MASTER_PARSER_VERSION
     ) {
 
       if (status) {
@@ -5771,6 +5827,8 @@ function base64ToUint8Array(base64) {
  * - returns exactly totalSize bytes (Uint8Array),
  *   the same type the existing import already receives
  */
+/* Change this when xlsxToConsumer reads new columns: phones then reload the master once. */
+const MASTER_PARSER_VERSION = "4";
 const MASTER_R2_MAX_ATTEMPTS = 3;
 const MASTER_R2_STALL_MS = 60000;
 
@@ -6075,57 +6133,28 @@ async function importMasterIntoPending(
   masterInfo
 ) {
 
-  if (
-    typeof XLSX === "undefined"
-  ) {
+  /*
+   * v18.6: the Excel file is read in a background worker and its rows
+   * come here 5,000 at a time, so the screen does not freeze and much
+   * less memory is used. Browsers without workers read it here.
+   */
+  const reader =
+    await openMasterRowReader(buffer);
 
-    throw new Error(
-      "Excel library is not loaded. Please check xlsx.full.min.js."
-    );
+  buffer = null;
 
-  }
+  const first =
+    await reader.next();
 
-  const workbook =
-    XLSX.read(
-      buffer,
-      {
-        type:"array",
-        cellDates:true
-      }
-    );
-
-  const sheetName =
-    workbook.SheetNames[0];
-
-  if (!sheetName) {
-    throw new Error(
-      "Consumer master XLSX contains no worksheet."
-    );
-  }
-
-  const ws =
-    workbook.Sheets[
-      sheetName
-    ];
-
-  const rows =
-    XLSX.utils.sheet_to_json(
-      ws,
-      {
-        header:1,
-        defval:"",
-        raw:true
-      }
-    );
-
-  if (!rows.length) {
+  if (!first.rows.length) {
+    reader.close();
     throw new Error(
       "Consumer master XLSX is empty."
     );
   }
 
   const header =
-    rows[0].map(x =>
+    first.rows[0].map(x =>
       String(
         x ?? ""
       )
@@ -6133,13 +6162,6 @@ async function importMasterIntoPending(
       .toLowerCase()
     );
 
-
-
-  /*
-   * Required columns. Each entry lists the accepted header names,
-   * compared ignoring case, spaces and underscores. Old and new
-   * (standard) names are both accepted.
-   */
   const expected = [
     ["acct_id"],
     ["sdo_code"],
@@ -6154,8 +6176,8 @@ async function importMasterIntoPending(
     ["total outstanding", "total_outstanding"],
     ["current reading", "close_reading"],
     ["mobile number", "mobile_no"],
-    ["last_pay_date"],
-    ["last_pay_amount"]
+    ["last_pay_date", "updated_last_pay_date"],
+    ["last_pay_amount", "updated_last_pay_amount"]
   ];
 
   const normalizedHeader =
@@ -6188,72 +6210,57 @@ async function importMasterIntoPending(
     pendingStore
   );
 
-  const batchSize = 500;
-
-  let batch = [];
+  const sourceRows =
+    Math.max(reader.total - 1, 0);
 
   let total = 0;
+  let seen = 0;
+  let chunk = first.rows.slice(1);
+  let done = first.done;
 
-  const sourceRows =
-    rows.length - 1;
+  try {
+    while (true) {
 
-  for (
-    let i=1;
-    i<rows.length;
-    i++
-  ) {
+      let batch = [];
 
-    const row =
-      rows[i];
+      for (const row of chunk) {
 
-    if (
-      !row ||
-      !row.some(
-        v =>
-          String(
-            v ?? ""
-          ).trim() !== ""
-      )
-    ) {
-      continue;
-    }
+        seen++;
 
-    const c =
-      xlsxToConsumer(
-        row,
-        header
-      );
+        if (
+          !row ||
+          !row.some(v => String(v ?? "").trim() !== "")
+        ) {
+          continue;
+        }
 
-    if (!c.ACCT_ID) {
-      continue;
-    }
+        const c =
+          xlsxToConsumer(
+            row,
+            header
+          );
 
-    batch.push(c);
+        if (!c.ACCT_ID) {
+          continue;
+        }
 
-    if (
-      batch.length >=
-      batchSize
-    ) {
+        batch.push(c);
 
-      const toWrite =
-        batch;
+        if (batch.length >= 500) {
+          await putMasterBatch(batch, pendingStore);
+          total += batch.length;
+          batch = [];
+        }
+      }
 
-      batch = [];
-
-      await putMasterBatch(
-        toWrite,
-        pendingStore
-      );
-
-      total +=
-        toWrite.length;
+      if (batch.length) {
+        await putMasterBatch(batch, pendingStore);
+        total += batch.length;
+      }
 
       const pct =
         sourceRows > 0
-          ? Math.round(
-              (i / sourceRows) *
-              100
-            )
+          ? Math.min(100, Math.round((seen / sourceRows) * 100))
           : 0;
 
       updateMasterSetupUI(
@@ -6270,26 +6277,20 @@ async function importMasterIntoPending(
           )
       );
 
+      if (done) break;
+
+      const next =
+        await reader.next();
+
+      chunk = next.rows;
+      done = next.done;
     }
-
+  } finally {
+    reader.close();
   }
 
-  if (batch.length) {
 
-    const toWrite =
-      batch;
 
-    batch = [];
-
-    await putMasterBatch(
-      toWrite,
-      pendingStore
-    );
-
-    total +=
-      toWrite.length;
-
-  }
 
   const importedCount =
     await countMasterConsumers(
@@ -6412,7 +6413,21 @@ async function importMasterIntoPending(
         new Date().toISOString(),
 
       consumer_count:
-        importedCount
+        importedCount,
+
+      parser_version:
+        MASTER_PARSER_VERSION,
+
+      /* v18.4: daily updates start from this master */
+      base_id:
+        String(verificationRecord.BASE_ID || ""),
+      updates_seq: 0,
+      report_date:
+        String(verificationRecord.REPORT_DATE || ""),
+      billing_month:
+        String(verificationRecord.BILLING_MONTH || ""),
+      master_month:
+        String(verificationRecord.MASTER_MONTH || "")
     }
   );
 
@@ -7337,7 +7352,7 @@ async function searchPhoneConsumer(){
   $("phoneLastPayAmount").textContent =c.LAST_PAY_AMOUNT || "";
   if ($("phoneConsumptionCurr")) $("phoneConsumptionCurr").textContent =
 
-    consumptionText(c);
+    consumptionText(c); showLastBill(c);
 
   $("phoneOutstanding").textContent=displayOrUnavailable(getConsumerOutstanding(c));
 
@@ -7690,7 +7705,7 @@ function selectRecheckConsumerFromSearch(c){
   $("rcLastPayDate").textContent=formatLastPayDate(c.LAST_PAY_DATE);
   $("rcLastPayAmount").textContent=c.LAST_PAY_AMOUNT||"";
   if ($("rcConsumptionCurr")) $("rcConsumptionCurr").textContent =
-    consumptionText(c);
+    consumptionText(c); showLastBill(c);
 
   $("rcMeterNo").textContent=
     displayOrUnavailable(getConsumerMeterNo(c));
@@ -7799,10 +7814,11 @@ function prepareRecheckSave(){
 
   ],async()=>{
     if(video) downloadActivityVideo(video);
+    const sharing=shareAtConfirm(record,video);   /* opens WhatsApp sharing now, from the CONFIRM tap */
     const saved=await saveRecheckLocal(record);
 
     if(saved && video) await keepVideoForUpload(record,video);
-    if(saved) openShareModal(record,video);
+    if(saved) afterSaveShare(record,video,sharing);
   });
 
 }
@@ -7992,7 +8008,7 @@ function selectDisconnectionConsumerFromSearch(c){
   $("dcLastPayDate").textContent=formatLastPayDate(c.LAST_PAY_DATE);
   $("dcLastPayAmount").textContent=c.LAST_PAY_AMOUNT||"";
   if ($("dcConsumptionCurr")) $("dcConsumptionCurr").textContent =
-    consumptionText(c);
+    consumptionText(c); showLastBill(c);
 
 
   $("dcMeterNo").textContent=
@@ -8095,10 +8111,11 @@ function prepareDisconnectionSave(){
     ["Video",video?videoSummary(video):"Not required"]
   ],async()=>{
     if(video) downloadActivityVideo(video);
+    const sharing=shareAtConfirm(record,video);   /* opens WhatsApp sharing now, from the CONFIRM tap */
     const saved=await saveActivityLocalRecord(record,"disconnectSaveStatus");
 
     if(saved && video) await keepVideoForUpload(record,video);
-    if(saved) openShareModal(record,video);
+    if(saved) afterSaveShare(record,video,sharing);
   });
 
 }
@@ -8617,7 +8634,7 @@ function selectConsumerFromSearch(c) {
     c.LAST_PAY_AMOUNT || "";
 
   if ($("dConsumptionCurr")) $("dConsumptionCurr").textContent =
-    consumptionText(c);
+    consumptionText(c); showLastBill(c);
 
 
   $("dConnectionStatus").textContent =
@@ -11178,6 +11195,1045 @@ function digitsOnlyGuard(input) {
   setAccountIdInputMode(input, true);
 });
 
+
+/* =========================================================
+ * v18 ADDITIONS
+ * =========================================================
+ * Last bill date + bill basis in Consumer Details.
+ */
+function lastBillText(c) {
+  const date = formatListDate(c.LAST_BILL_DATE);
+  const basis = String(c.BILL_BASIS || "").trim();
+  if (!date && !basis) return "—";
+  return (date || "—") + (basis ? " (" + basis + ")" : "");
+}
+
+function showLastBill(c) {
+  ["dLastBill", "phoneLastBill", "rcLastBill", "dcLastBill"].forEach(id => {
+    if ($(id)) $(id).textContent = lastBillText(c);
+  });
+}
+
+/* =========================================================
+ * v18.3 ADDITIONS
+ * =========================================================
+ * 1. Share from the CONFIRM tap. Phones open the share window
+ *    only right after a tap, so it is opened before saving
+ *    (saving a video takes several seconds).
+ */
+async function shareAtConfirm(record, video) {
+  /* "shared" | "closed" (share window closed) | "failed" (phone did not allow it) */
+  if (!navigator.share) return "failed";
+
+  const data = { text: buildActivityShareText(record) };
+
+  if (video && video.blob) {
+    const file = new File([video.blob], video.fileName, { type: video.contentType || "video/mp4" });
+    if (!(navigator.canShare && navigator.canShare({ files: [file] }))) return "failed";
+    data.files = [file];
+  }
+
+  try {
+    await navigator.share(data);
+    return "shared";
+  } catch (e) {
+    return e && e.name === "AbortError" ? "closed" : "failed";
+  }
+}
+
+/* Only when the phone could not open the share window does the Saved screen appear. */
+async function afterSaveShare(record, video, sharing) {
+  const result = await sharing;
+  if (result === "failed") openShareModal(record, video);
+}
+
+/* 2. App version at the bottom (taken from app.js?v=... in index.html). */
+const APP_VERSION = (() => {
+  try {
+    return new URL(document.currentScript.src).searchParams.get("v") || "";
+  } catch (e) {
+    return "";
+  }
+})();
+
+(() => {
+  const footer = document.querySelector("footer");
+  if (!footer || !APP_VERSION) return;
+  const line = document.createElement("div");
+  line.id = "appVersionLabel";
+  line.style.cssText = "margin-top:3px;font-size:11px;opacity:.85";
+  line.textContent = "App version " + APP_VERSION;
+  footer.appendChild(line);
+})();
+
+/* =========================================================
+ * v18.6: read the master Excel file in a background worker
+ * =========================================================
+ * Returns { total, next(), close() }. next() gives
+ * { rows: [up to 5,000 rows], done }. The first chunk starts
+ * with the header row.
+ */
+const MASTER_READ_CHUNK = 5000;
+
+function masterRowsFromArray(rows) {
+  let pos = 0;
+  return {
+    total: rows.length,
+    next: async () => {
+      const part = rows.slice(pos, pos + MASTER_READ_CHUNK);
+      for (let i = pos; i < pos + part.length; i++) rows[i] = null;   /* free memory as we go */
+      pos += part.length;
+      return { rows: part, done: pos >= rows.length };
+    },
+    close: () => { rows = []; }
+  };
+}
+
+function masterRowsOnThisThread(buffer) {
+  if (typeof XLSX === "undefined") {
+    throw new Error("Excel library is not loaded. Please check xlsx.full.min.js.");
+  }
+  let workbook = XLSX.read(buffer, { type: "array", cellDates: true, dense: true });
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  if (!ws) throw new Error("Consumer master XLSX contains no worksheet.");
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
+  workbook = null;
+  return masterRowsFromArray(rows);
+}
+
+async function openMasterRowReader(buffer) {
+  const tag = document.querySelector('script[src*="xlsx.full.min.js"]');
+  const xlsxUrl = tag && tag.src ? tag.src : new URL("xlsx.full.min.js", document.baseURI).href;
+
+  const code =
+    "importScripts(" + JSON.stringify(xlsxUrl) + ");\n" +
+    "let rows = null, pos = 0;\n" +
+    "onmessage = e => {\n" +
+    "  const m = e.data;\n" +
+    "  try {\n" +
+    "    if (m.type === 'parse') {\n" +
+    "      let wb = XLSX.read(new Uint8Array(m.buffer), { type: 'array', cellDates: true, dense: true });\n" +
+    "      const ws = wb.Sheets[wb.SheetNames[0]];\n" +
+    "      if (!ws) throw new Error('Consumer master XLSX contains no worksheet.');\n" +
+    "      rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });\n" +
+    "      wb = null;\n" +
+    "      postMessage({ type: 'ready', total: rows.length });\n" +
+    "    } else if (m.type === 'next') {\n" +
+    "      const part = rows.slice(pos, pos + " + MASTER_READ_CHUNK + ");\n" +
+    "      for (let i = pos; i < pos + part.length; i++) rows[i] = null;\n" +
+    "      pos += part.length;\n" +
+    "      postMessage({ type: 'rows', rows: part, done: pos >= rows.length });\n" +
+    "    }\n" +
+    "  } catch (err) {\n" +
+    "    postMessage({ type: 'error', message: String((err && err.message) || err) });\n" +
+    "  }\n" +
+    "};\n";
+
+  let worker = null;
+  try {
+    worker = new Worker(URL.createObjectURL(new Blob([code], { type: "text/javascript" })));
+  } catch (e) {
+    worker = null;
+  }
+  if (!worker) return masterRowsOnThisThread(buffer);
+
+  let waiting = null;
+  worker.onmessage = e => {
+    const w = waiting;
+    waiting = null;
+    if (!w) return;
+    if (e.data && e.data.type === "error") w.reject(new Error(e.data.message));
+    else w.resolve(e.data);
+  };
+  worker.onerror = e => {
+    if (e && e.preventDefault) e.preventDefault();
+    const w = waiting;
+    waiting = null;
+    if (w) w.reject(new Error((e && e.message) || "Master Data could not be read."));
+  };
+  const ask = msg => new Promise((resolve, reject) => {
+    waiting = { resolve, reject };
+    worker.postMessage(msg);
+  });
+
+  try {
+    const ready = await ask({ type: "parse", buffer: buffer });
+    return {
+      total: ready.total,
+      next: () => ask({ type: "next" }),
+      close: () => worker.terminate()
+    };
+  } catch (e) {
+    worker.terminate();
+    console.warn("Background reading failed, reading here instead:", e);
+    return masterRowsOnThisThread(buffer);
+  }
+}
+
+/* =========================================================
+ * v18.4 ADDITIONS: DAILY MASTER UPDATES (in the background)
+ * =========================================================
+ * The Master Tool publishes small change files every day.
+ * The phone asks the server (master_updates) which ones it needs,
+ * downloads them from R2 and applies them to the master on the
+ * phone. A new monthly master is downloaded in the background
+ * too; only the very first setup shows the setup screen.
+ * Checks: 25 s after opening, every 30 minutes, when the phone
+ * comes back online, and when the app is opened again.
+ */
+const MASTER_SYNC_EVERY_MS = 30 * 60 * 1000;
+const MASTER_SYNC_MIN_GAP_MS = 10 * 60 * 1000;
+const MASTER_CHANGE_BATCH = 500;
+let masterSyncRunning = false;
+let masterSyncLastAt = 0;
+
+function masterSyncLine(text) {
+  let el = $("masterSyncLine");
+  if (!el) {
+    const status = $("masterUpdateStatus");
+    if (!status) return;
+    el = document.createElement("div");
+    el.id = "masterSyncLine";
+    el.style.cssText = "margin-top:6px;font-size:12px;color:#5d7178";
+    status.insertAdjacentElement("afterend", el);
+  }
+  el.textContent = text || "";
+  if (!state.masterQuiet) refreshDataUpTo();
+}
+
+/* Small label at the top: "Data up to 08/11/2026" (or the update progress). */
+function setDataUpToText(text) {
+  let el = $("dataUpToLabel");
+  if (!el) {
+    const header = document.querySelector("header .subtitle") || document.querySelector("header h1");
+    if (!header) return;
+    el = document.createElement("div");
+    el.id = "dataUpToLabel";
+    el.style.cssText = "display:inline-block;margin-top:6px;padding:2px 9px;border-radius:999px;" +
+      "background:rgba(255,255,255,.2);color:#fff;font-size:11px;font-weight:700;letter-spacing:.2px";
+    header.insertAdjacentElement("afterend", el);
+  }
+  el.textContent = text || "";
+  el.classList.toggle("hidden", !text);
+}
+
+function refreshDataUpTo() {
+  if (state.masterQuiet) return;                 /* progress is shown instead */
+  const meta = getLocalMasterMeta();
+  if (!meta || !state.masterReady) {
+    setDataUpToText("");
+    return;
+  }
+  let date = String(meta.report_date || "").trim();
+  if (!date && meta.last_updated) {
+    const d = new Date(meta.last_updated);
+    if (!isNaN(d.getTime())) date = d.toLocaleDateString("en-GB");
+  }
+  setDataUpToText(date ? "Data up to " + date + reportsShortText(meta) : "");
+}
+
+/* " (billed report 08/11, unbilled 09/11)" - which day's reports the data comes from */
+function reportsShortText(meta) {
+  const r = (meta && meta.reports) || {};
+  const dm = v => String(v || "").split("/").slice(0, 2).join("/");
+  const parts = [];
+  if (r.billed) parts.push("billed report " + dm(r.billed));
+  if (r.unbilled) parts.push((r.billed ? "unbilled " : "unbilled report ") + dm(r.unbilled));
+  return parts.length ? " (" + parts.join(", ") + ")" : "";
+}
+
+setTimeout(refreshDataUpTo, 1500);
+setInterval(refreshDataUpTo, 60 * 1000);
+
+/* Progress of a background master import: one short line (the screen stays usable). */
+function masterQuietProgress(status, count, message) {
+  if (status !== "loading") return;
+  const text = String(message || "");
+  const toMb = (n, unit) => Number(n) * ({ KB: 1 / 1024, MB: 1, GB: 1024 }[unit] || 1);
+  let pct = null;
+  let step = "updating";
+
+  let m = text.match(/([\d.]+)\s*(KB|MB|GB)\s*\/\s*([\d.]+)\s*(KB|MB|GB)/i);
+  if (/download/i.test(text)) {
+    step = "downloading";
+    if (m) pct = Math.round(100 * toMb(m[1], m[2].toUpperCase()) / Math.max(toMb(m[3], m[4].toUpperCase()), 0.001));
+  } else if (/import/i.test(text)) {
+    step = "importing";
+    m = text.match(/(\d+)\s*%/);
+    if (m) pct = Number(m[1]);
+  }
+
+  const short = "Updating master data: " + step + (pct === null ? "…" : " " + Math.min(pct, 100) + "%");
+  masterSyncLine(short);
+  setDataUpToText(short);
+}
+
+function updatesSummaryText(meta) {
+  if (!meta || !meta.base_id) return "";
+  let text = "Daily updates: update " + (meta.updates_seq || 0);
+  if (meta.report_date) text += " (report " + meta.report_date + ")";
+  if (meta.updates_checked_at) {
+    text += ", checked " + new Date(meta.updates_checked_at)
+      .toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  }
+  return text;
+}
+
+async function gunzipJson(buffer) {
+  const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return JSON.parse(await new Response(stream).text());
+}
+
+/* One batch of consumers in one transaction. Returns how many were found and changed. */
+function applyMasterChangeBatch(storeName, entries) {
+  return new Promise((resolve, reject) => {
+    const tx = state.masterDb.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    let changed = 0;
+
+    entries.forEach(([acct, fields]) => {
+      const req = store.get(acct);
+      req.onsuccess = () => {
+        const c = req.result;
+        if (!c) return;                          /* not in this master */
+        Object.assign(c, fields);
+        if ("METER_NO" in fields) {
+          c._meter_norm = String(c.METER_NO || "").toUpperCase().replace(/\s+/g, "");
+        }
+        store.put(c);
+        changed++;
+      };
+    });
+
+    tx.oncomplete = () => resolve(changed);
+    tx.onerror = () => reject(tx.error || new Error("Could not save master changes."));
+  });
+}
+
+async function applyMasterChangeFile(file, meta) {
+  if (String(file.base_id || "") !== String(meta.base_id || "")) {
+    throw new Error("This update belongs to another master.");
+  }
+  const entries = Object.entries(file.changes || {});
+  const storeName = state.activeMasterStore;
+  let changed = 0;
+  for (let i = 0; i < entries.length; i += MASTER_CHANGE_BATCH) {
+    changed += await applyMasterChangeBatch(storeName, entries.slice(i, i + MASTER_CHANGE_BATCH));
+    await new Promise(resolve => setTimeout(resolve, 0));     /* keep the screen responsive */
+  }
+  return changed;
+}
+
+/* New monthly master without the setup screen: imported into the spare store, then switched. */
+async function backgroundMasterUpdate(remote) {
+  state.masterQuiet = true;
+  masterSyncLine("New Master Data is downloading in the background. You can keep working.");
+  try {
+    const buffer = await downloadAssignedMaster(remote);
+    const count = await importMasterIntoPending(buffer, remote);
+    showAppToast("New Master Data loaded: " + count.toLocaleString("en-IN") + " consumers. (नया मास्टर डेटा)");
+  } catch (e) {
+    /* free the half-imported copy; the current master stays in use */
+    try { await clearMasterConsumers(getInactiveMasterStore()); } catch (x) {}
+    throw e;
+  } finally {
+    state.masterQuiet = false;
+    refreshDataUpTo();
+  }
+}
+
+async function syncMasterUpdates(force, fromButton) {
+  if (masterSyncRunning) return;
+  if (!state.sessionToken || !state.masterDb || !state.masterReady || !navigator.onLine) return;
+  if (!fromButton && $("checkMasterUpdateBtn") && $("checkMasterUpdateBtn").disabled) return;   /* manual update running */
+  if (!force && Date.now() - masterSyncLastAt < MASTER_SYNC_MIN_GAP_MS) return;
+
+  masterSyncRunning = true;
+  masterSyncLastAt = Date.now();
+
+  try {
+    for (let round = 0; round < 2; round++) {
+      let meta = Object.assign({}, getLocalMasterMeta() || {});
+      const res = await serverPost("master_updates", {
+        base_id: meta.base_id || "",
+        seq: Number(meta.updates_seq) || 0
+      });
+      if (!res || !res.success || !res.available) return;
+
+      if (res.master_changed) {
+        const remote = await checkAssignedMaster();
+        if (String(remote.master_file_id || "") === String(meta.master_file_id || "") &&
+            String(meta.parser_version || "") === MASTER_PARSER_VERSION) {
+          return;     /* this phone already has the newest master file */
+        }
+        await backgroundMasterUpdate(remote);
+        continue;     /* then fetch that master's updates */
+      }
+
+      if (res.up_to_date && (res.report_date || res.reports)) {
+        /* same figures, newer report days (or a phone that never had them) */
+        meta = Object.assign({}, getLocalMasterMeta(), {
+          report_date: res.report_date || meta.report_date || "",
+          reports: res.reports || meta.reports || {}
+        });
+        await saveMasterMeta(meta);
+        refreshDataUpTo();
+      }
+
+      let total = 0;
+      for (const d of res.downloads || []) {
+        if (Number(d.from_seq) > (Number(meta.updates_seq) || 0)) break;   /* gap: next time */
+        const r = await fetch(d.url);
+        if (!r.ok) throw new Error("Update download failed (HTTP " + r.status + ")");
+        const file = await gunzipJson(await r.arrayBuffer());
+        total += await applyMasterChangeFile(file, meta);
+        meta = Object.assign({}, getLocalMasterMeta(), {
+          updates_seq: Number(file.seq) || 0,
+          report_date: file.report_date || meta.report_date || "",
+          billing_month: file.billing_month || meta.billing_month || "",
+          reports: file.reports || meta.reports || {}
+        });
+        await saveMasterMeta(meta);
+      }
+
+      meta = Object.assign({}, getLocalMasterMeta(), { updates_checked_at: new Date().toISOString() });
+      await saveMasterMeta(meta);
+      masterSyncLine(updatesSummaryText(meta));
+
+      if (total) {
+        dlOptions = null;          /* lists re-read their filter choices */
+        showAppToast("Master data updated: " + total.toLocaleString("en-IN") +
+          " consumers (report " + (meta.report_date || "") + "). (मास्टर डेटा अपडेट)");
+      }
+      return;
+    }
+  } catch (e) {
+    console.warn("Daily master update failed", e);
+    const text = String((e && e.message) || e);
+    const noSpace = (e && e.name === "QuotaExceededError") || /quota|space/i.test(text);
+    const msg = noSpace
+      ? "Not enough storage space on this phone for the new Master Data. Free some space; it will try again."
+      : "Master Data update could not finish now; it will try again. (" + text + ")";
+    masterSyncLine(msg);
+    showAppToast(msg, 8000);
+    refreshDataUpTo();
+  } finally {
+    masterSyncRunning = false;
+  }
+}
+
+setInterval(() => syncMasterUpdates(false), MASTER_SYNC_EVERY_MS);
+setTimeout(() => syncMasterUpdates(true), 25000);
+window.addEventListener("online", () => setTimeout(() => syncMasterUpdates(true), 8000));
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") setTimeout(() => syncMasterUpdates(false), 6000);
+});
+if (getLocalMasterMeta()) masterSyncLine(updatesSummaryText(getLocalMasterMeta()));
+
+/* =========================================================
+ * v19.0 PROGRESS TAB
+ * =========================================================
+ * Everything is calculated on this phone from the master
+ * (+ daily updates), so it works offline. The master is read
+ * once per data version into village-level totals; filters and
+ * switches only add those totals up (instant).
+ * The disconnection drive comes from the server (REFRESH) and
+ * the last copy is kept for offline use.
+ */
+
+/* ---------- categories (Tariff PDF) ---------- */
+const PG_TARIFF = (() => {
+  const t = {
+    "LMV-1": "10 10A 11 17 17A 18 19",
+    "LMV-2": "20 22 24 24B 24C 24D 25 26 27 28",
+    "LMV-3": "30 31 32 33 34 35 36A 37A 38A",
+    "LMV-4": "40 40A 41 41A 42 42A 43 44 46 47",
+    "LMV-5": "50 51 52 53 54 55 56 57A 57 58U 58 58UA 59R 59RA",
+    "LMV-6": "60 60TA 61 63 65 66 67 68T",
+    "LMV-7": "72 73 74 75",
+    "LMV-8": "80U 80R 81U 81R 82U 82R",
+    "LMV-9": "90 91 92 93 94 95 99",
+    "LMV-10": "101 102 103 104 105 106 107",
+    "LMV-11": "11A 11B 11C 11D 11FA 11GA 11HA",
+    "HV-1": "H11 H12 H13 H14 H15 H15A H16 H16A H17 H17A H18 H18A",
+    "HV-2": "H21A H22A H23A H24A H26",
+    "HV-3": "H31 H32 H33 H34 H35 H36",
+    "HV-4": "H41 H42 H43"
+  };
+  const map = {};
+  Object.keys(t).forEach(cat => t[cat].split(" ").forEach(code => { map[code] = cat; }));
+  return map;
+})();
+const PG_CAT_ORDER = ["LMV-1", "LMV-2", "LMV-3", "LMV-4", "LMV-5", "LMV-6", "LMV-7", "LMV-8",
+  "LMV-9", "LMV-10", "LMV-11", "HV-1", "HV-2", "HV-3", "HV-4", "OTHER"];
+/* Govt: LMV-3, LMV-4 (40-44), LMV-7, LMV-8, LMV-10, HV-3, HV-4. PTW: LMV-5. Rest: Non-Govt. */
+const PG_GOVT_CODES = new Set("40 40A 41 41A 42 42A 43 44".split(" "));
+const PG_GOVT_CATS = new Set(["LMV-3", "LMV-7", "LMV-8", "LMV-10", "HV-3", "HV-4"]);
+const PG_BILLABLE = new Set(["INSERVICE", "TD", "TD>6MONTH", "TD>6MONTHS"]);
+const PG_GROUP_LABEL = { ALL: "All", G: "Govt", N: "Non-Govt", P: "PTW" };
+const PG_LEVELS = ["sdo", "sub", "feeder", "village"];
+const PG_LEVEL_LABEL = { sdo: "SDO", sub: "Substation", feeder: "Feeder", village: "Village" };
+const PG_UNPAID_BANDS = ["3 to 4", "5 to 9", "10 to 49", "50 and above"];
+const PG_UNBILLED_BANDS = ["1", "2", "3 to 4", "5 to 9", "10 to 49", "50 and above"];
+
+function pgSupplyCode(v) {
+  return String(v == null ? "" : v).trim().toUpperCase().replace(/\s+/g, "").replace(/\.0+$/, "");
+}
+function pgCategory(code) {
+  if (PG_TARIFF[code]) return PG_TARIFF[code];
+  const c = code ? supplyCategory(code) : "OTHER";
+  return PG_CAT_ORDER.indexOf(c) === -1 ? "OTHER" : c;
+}
+function pgGroup(code, cat) {
+  if (cat === "LMV-5") return "P";
+  return PG_GOVT_CATS.has(cat) || PG_GOVT_CODES.has(code) ? "G" : "N";
+}
+function pgBillable(status) {
+  return PG_BILLABLE.has(String(status || "").toUpperCase().replace(/\s+/g, ""));
+}
+function pgNum(v) {
+  const n = Number(String(v == null ? "" : v).replace(/,/g, "").trim());
+  return isFinite(n) ? n : 0;
+}
+function pgUnpaidBand(load) {               /* kW/kVA/BHP treated alike */
+  if (load >= 50) return 3;
+  if (load >= 10) return 2;
+  if (load >= 5) return 1;
+  if (load >= 3) return 0;
+  return -1;
+}
+function pgUnbilledBand(load) {
+  if (load >= 50) return 5;
+  if (load >= 10) return 4;
+  if (load >= 5) return 3;
+  if (load > 2) return 2;
+  if (load > 1) return 1;
+  return 0;
+}
+
+/* ---------- dates (yyyy-mm-dd strings compare correctly) ---------- */
+const PG_MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+function pgMonthKey(label) {                 /* "NOV_2026" -> "2026-11" */
+  const m = String(label || "").toUpperCase().match(/([A-Z]{3})[_\- ]?(\d{4})/);
+  if (!m || PG_MONTHS.indexOf(m[1]) === -1) return "";
+  return m[2] + "-" + String(PG_MONTHS.indexOf(m[1]) + 1).padStart(2, "0");
+}
+function pgPrevMonth(ym) {
+  let [y, m] = ym.split("-").map(Number);
+  m -= 1; if (m < 1) { m = 12; y -= 1; }
+  return y + "-" + String(m).padStart(2, "0");
+}
+function pgDaysIn(ym) {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+function pgAddDays(ymd, n) {
+  const d = new Date(ymd + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function pgDayDiff(a, b) {                   /* days from a to b */
+  return Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / 86400000);
+}
+function pgShortDate(ymd) {                  /* "2026-11-08" -> "8 Nov" */
+  return Number(ymd.slice(8, 10)) + " " + PG_MONTHS[Number(ymd.slice(5, 7)) - 1].charAt(0) +
+    PG_MONTHS[Number(ymd.slice(5, 7)) - 1].slice(1).toLowerCase();
+}
+function pgTodayYmd() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+function pgContext() {
+  const meta = getLocalMasterMeta() || {};
+  const report = parseMasterDate(meta.report_date) || pgTodayYmd();
+  const billingMonth = pgMonthKey(meta.billing_month) || report.slice(0, 7);
+  const masterMonth = pgMonthKey(meta.master_month) || pgPrevMonth(billingMonth);
+  const day = Math.min(Number(report.slice(8, 10)), pgDaysIn(masterMonth));
+  return {
+    key: [state.activeMasterStore, state.masterCount, meta.base_id || "", meta.updates_seq || 0,
+      meta.master_file_id || "", meta.report_date || ""].join("|"),
+    report: report,
+    billingMonth: billingMonth,
+    monthStart: billingMonth + "-01",
+    masterMonth: masterMonth,
+    compareOk: masterMonth === pgPrevMonth(billingMonth),
+    lmDayLimit: masterMonth + "-" + String(day).padStart(2, "0")
+  };
+}
+
+/* ---------- reading the master once ---------- */
+function pgNewCell() {
+  return {
+    n: 0, billable: 0, billed: 0,
+    rev: 0, lmDay: 0, lmTotal: 0, day: [0, 0, 0, 0, 0, 0, 0],
+    paid: 0, lmPaid: 0, lmPaidDay: 0,
+    unpaid: 0, unpaidAmt: 0, band: [0, 0, 0, 0], bandAmt: [0, 0, 0, 0],
+    never: 0, neverAmt: 0,
+    ub: [0, 0, 0, 0, 0, 0], cats: {}, remark: {}, basis: {}
+  };
+}
+function pgNewCat() {
+  return { billable: 0, paid: 0, lmPaid: 0, lmPaidDay: 0, unbilled: 0, unpaid: 0, unpaidAmt: 0 };
+}
+
+let pgData = null;          /* { key, ctx, cells: Map, units: [[sdo,sub,feeder,village]] } */
+let pgBusy = false;
+
+async function pgCompute(ctx) {
+  const cells = new Map();
+  const units = new Map();
+
+  await forEachMasterBatch(batch => {
+    for (const c of batch) {
+      const code = pgSupplyCode(c.SUPPLY_TYPE);
+      const cat = pgCategory(code);
+      const grp = pgGroup(code, cat);
+      const meter = String(c.MR_SOURCE_CD || "").trim().toUpperCase() === "SM" ? "S" : "N";
+      const u = [dlVal(c.SDO_CODE), dlVal(c.SUBSTATION), dlVal(c.FEEDER), dlVal(c.feeded_village_name)];
+      const uKey = u.join("\u0001");
+      if (!units.has(uKey)) units.set(uKey, u);
+      const key = uKey + "\u0001" + grp + "\u0001" + meter;
+      let m = cells.get(key);
+      if (!m) { m = pgNewCell(); cells.set(key, m); }
+      m.n++;
+
+      /* revenue: every consumer (also PD paying old dues) */
+      const pay = parseMasterDate(c.LAST_PAY_DATE);
+      const payAmt = pgNum(c.LAST_PAY_AMOUNT);
+      const tmRaw = String(c.THIS_MONTH_TOTAL_PAY_AMT == null ? "" : c.THIS_MONTH_TOTAL_PAY_AMT).trim();
+      let thisMonth = tmRaw !== "" ? pgNum(tmRaw) : 0;
+      const payInMonth = !!pay && pay >= ctx.monthStart && pay <= ctx.report;
+      if (!thisMonth && payInMonth) thisMonth = payAmt;
+      m.rev += thisMonth;
+      if (pay && pay <= ctx.report) {
+        const diff = pgDayDiff(pay, ctx.report);
+        if (diff >= 0 && diff < 7) m.day[diff] += payAmt;
+      }
+      const mpay = parseMasterDate(c.MASTER_LAST_PAY_DATE);
+      const lmIn = !!mpay && mpay.slice(0, 7) === ctx.masterMonth;
+      const lmInDay = lmIn && mpay <= ctx.lmDayLimit;
+      if (lmInDay) m.lmDay += pgNum(c.MASTER_LAST_PAY_AMOUNT);
+      const lmTotal = pgNum(c.MASTER_TOTAL_PAY_AMT);
+      m.lmTotal += lmTotal;
+
+      if (!pgBillable(c.CONNECTION_STATUS)) continue;
+
+      /* billable only from here */
+      const ce = m.cats[cat] || (m.cats[cat] = pgNewCat());
+      m.billable++; ce.billable++;
+      const paid = thisMonth > 0 || payInMonth;
+      if (paid) { m.paid++; ce.paid++; }
+      if (lmTotal > 0 || lmIn) { m.lmPaid++; ce.lmPaid++; }
+      if (lmInDay) { m.lmPaidDay++; ce.lmPaidDay++; }
+
+      const load = pgNum(c.LOAD);
+      const bill = parseMasterDate(c.LAST_BILL_DATE);
+      if (bill && bill.slice(0, 7) === ctx.billingMonth) {
+        m.billed++;
+        const r = String(c.METER_READ_REMARK || "").trim().toUpperCase() || "(blank)";
+        const b = String(c.BILL_BASIS || "").trim().toUpperCase() || "(blank)";
+        m.remark[r] = (m.remark[r] || 0) + 1;
+        m.basis[b] = (m.basis[b] || 0) + 1;
+      } else {
+        ce.unbilled++;
+        m.ub[pgUnbilledBand(load)]++;
+      }
+
+      const out = pgNum(c.TOTAL_OUTSTANDING);
+      if (out > 0 && !(pay && pay >= ctx.monthStart)) {
+        m.unpaid++; m.unpaidAmt += out;
+        ce.unpaid++; ce.unpaidAmt += out;
+        const band = pgUnpaidBand(load);
+        if (band >= 0) { m.band[band]++; m.bandAmt[band] += out; }
+      }
+      if (!pay || pay < "2010-01-01") {
+        m.never++; m.neverAmt += Math.max(out, 0);
+      }
+    }
+  });
+
+  return { key: ctx.key, ctx: ctx, cells: cells, units: Array.from(units.values()) };
+}
+
+function pgAdd(t, m) {
+  Object.keys(m).forEach(k => {
+    const v = m[k];
+    if (typeof v === "number") t[k] = (t[k] || 0) + v;
+    else if (Array.isArray(v)) { t[k] = t[k] || v.map(() => 0); v.forEach((x, i) => { t[k][i] += x; }); }
+    else if (k === "cats") Object.keys(v).forEach(cat => {
+      const a = t.cats[cat] || (t.cats[cat] = pgNewCat());
+      Object.keys(v[cat]).forEach(f => { a[f] += v[cat][f]; });
+    });
+    else Object.keys(v).forEach(x => { t[k][x] = (t[k][x] || 0) + v[x]; });
+  });
+}
+
+/* ---------- filters and switches (saved per user) ---------- */
+const PG_DEFAULTS = { sdo: "", sub: "", feeder: "", village: "", group: "ALL", meter: "ALL",
+  level: "sub", compare: "OFF", period: "M" };
+let pgSel = Object.assign({}, PG_DEFAULTS);
+
+function pgSaveKey() { return "fieldworkProgress:" + String(state.userId || "").trim().toLowerCase(); }
+function pgLoadSel() {
+  try { pgSel = Object.assign({}, PG_DEFAULTS, JSON.parse(localStorage.getItem(pgSaveKey()) || "{}")); }
+  catch (e) { pgSel = Object.assign({}, PG_DEFAULTS); }
+}
+function pgSaveSel() {
+  try { localStorage.setItem(pgSaveKey(), JSON.stringify(pgSel)); } catch (e) {}
+}
+
+function pgUnitMatches(u) {
+  return (!pgSel.sdo || u[0] === pgSel.sdo) && (!pgSel.sub || u[1] === pgSel.sub) &&
+    (!pgSel.feeder || u[2] === pgSel.feeder) && (!pgSel.village || u[3] === pgSel.village);
+}
+function pgLabel(v) { return v === DL_BLANK ? "(blank)" : v; }
+
+function pgFillSelect(id, values, current) {
+  const sel = $(id);
+  if (!sel) return "";
+  const list = dlSortValues(Array.from(new Set(values)));
+  const keep = current && list.indexOf(current) !== -1 ? current : "";
+  sel.innerHTML = '<option value="">All</option>' +
+    list.map(v => '<option value="' + escapeHtml(v) + '">' + escapeHtml(pgLabel(v)) + "</option>").join("");
+  sel.value = keep;
+  return keep;
+}
+
+function pgRefreshDropdowns() {
+  const u = pgData.units;
+  pgSel.sdo = pgFillSelect("pgSdo", u.map(x => x[0]), pgSel.sdo);
+  const a = u.filter(x => !pgSel.sdo || x[0] === pgSel.sdo);
+  pgSel.sub = pgFillSelect("pgSub", a.map(x => x[1]), pgSel.sub);
+  const b = a.filter(x => !pgSel.sub || x[1] === pgSel.sub);
+  pgSel.feeder = pgFillSelect("pgFeeder", b.map(x => x[2]), pgSel.feeder);
+  const c = b.filter(x => !pgSel.feeder || x[2] === pgSel.feeder);
+  pgSel.village = pgFillSelect("pgVillage", c.map(x => x[3]), pgSel.village);
+}
+
+function pgSetSwitches() {
+  [["pgGroup", "group"], ["pgMeter", "meter"], ["pgLevel", "level"], ["pgCompare", "compare"], ["pgPeriod", "period"]]
+    .forEach(([id, key]) => {
+      const box = $(id);
+      if (!box) return;
+      box.querySelectorAll("button[data-v]").forEach(b => b.classList.toggle("on", b.dataset.v === pgSel[key]));
+    });
+}
+
+function pgPeriodButtons(ctx) {
+  const box = $("pgPeriod");
+  if (!box) return;
+  const r = ctx.report;
+  const label = {
+    "1": "Latest day (" + pgShortDate(r) + ")",
+    "2": "2 days (" + pgShortDate(pgAddDays(r, -1)) + "–" + pgShortDate(r) + ")",
+    "7": "7 days (" + pgShortDate(pgAddDays(r, -6)) + "–" + pgShortDate(r) + ")",
+    "M": "This month (" + pgShortDate(ctx.monthStart) + "–" + pgShortDate(r) + ")"
+  };
+  box.querySelectorAll("button[data-v]").forEach(b => { b.textContent = label[b.dataset.v]; });
+}
+
+/* ---------- adding up for the screen ---------- */
+function pgCollect() {
+  const levelIdx = PG_LEVELS.indexOf(pgSel.level);
+  const total = pgNewCell();
+  const byUnit = new Map();
+  const byMeter = { S: pgNewCell(), N: pgNewCell() };
+
+  pgData.cells.forEach((m, key) => {
+    const parts = key.split("\u0001");
+    const u = parts.slice(0, 4);
+    const grp = parts[4], meter = parts[5];
+    if (!pgUnitMatches(u)) return;
+    if (pgSel.group !== "ALL" && grp !== pgSel.group) return;
+    pgAdd(byMeter[meter], m);                       /* smart / non-smart table ignores the meter switch */
+    if (pgSel.meter === "S" && meter !== "S") return;
+    if (pgSel.meter === "N" && meter !== "N") return;
+    pgAdd(total, m);
+    const name = u[levelIdx];
+    if (!byUnit.has(name)) byUnit.set(name, pgNewCell());
+    pgAdd(byUnit.get(name), m);
+  });
+
+  const units = dlSortValues(Array.from(byUnit.keys())).map(name => [pgLabel(name), byUnit.get(name)]);
+  return { total: total, units: units, byMeter: byMeter };
+}
+
+/* ---------- formatting ---------- */
+function pgN(n) { return Math.round(n || 0).toLocaleString("en-IN"); }
+function pgRs(n) { return "₹" + Math.round(n || 0).toLocaleString("en-IN"); }
+function pgPct(a, b) { return b ? (100 * a / b).toFixed(1) + "%" : "—"; }
+function pgChange(now, before) {
+  if (!before) return "—";
+  const p = 100 * (now - before) / before;
+  const cls = p >= 0 ? "pg-up" : "pg-down";
+  return '<span class="' + cls + '">' + (p >= 0 ? "+" : "") + p.toFixed(1) + "%</span>";
+}
+function pgTable(head, rows, totalRow) {
+  const th = "<tr>" + head.map(h => "<th>" + h + "</th>").join("") + "</tr>";
+  const tr = r => "<tr" + (r === totalRow ? ' class="total"' : "") + ">" + r.map(c => "<td>" + c + "</td>").join("") + "</tr>";
+  const body = (totalRow ? [totalRow] : []).concat(rows).map(tr).join("");
+  return '<div class="pg-scroll"><table class="pg-table"><thead>' + th + "</thead><tbody>" + body + "</tbody></table></div>";
+}
+function pgUnitRows(col, fn) {
+  /* [Total] + one row per unit, first column = unit name */
+  return { total: ["Total"].concat(fn(col.total)), rows: col.units.map(([name, m]) => [escapeHtml(name)].concat(fn(m))) };
+}
+
+/* ---------- sections ---------- */
+function pgRevenueHtml(col, ctx) {
+  const cmp = pgSel.compare === "ON" && ctx.compareOk;
+  const p = pgSel.period;
+  const periodSum = m => p === "M" ? m.rev : m.day.slice(0, Number(p)).reduce((a, b) => a + b, 0);
+  const periodName = $("pgPeriod") && $("pgPeriod").querySelector('button[data-v="' + p + '"]')
+    ? $("pgPeriod").querySelector('button[data-v="' + p + '"]').textContent : "Period";
+  const head = [PG_LEVEL_LABEL[pgSel.level]];
+  if (p !== "M") head.push(escapeHtml(periodName));
+  head.push("This month");
+  if (cmp) head.push("Last month same day", "Change", "Last month total");
+  const fn = m => {
+    const r = [];
+    if (p !== "M") r.push(pgRs(periodSum(m)));
+    r.push(pgRs(m.rev));
+    if (cmp) r.push(pgRs(m.lmDay), pgChange(m.rev, m.lmDay), pgRs(m.lmTotal));
+    return r;
+  };
+  const t = pgUnitRows(col, fn);
+  let note = "";
+  if (pgSel.compare === "ON" && !ctx.compareOk) {
+    note = '<div class="pg-note">Last month\'s master is not received yet, so there is no comparison.</div>';
+  }
+  return note + pgTable(head, t.rows, t.total);
+}
+
+function pgTurnUpHtml(col, ctx) {
+  const cmp = pgSel.compare === "ON" && ctx.compareOk;
+  const head = ["Category", "Billable", "Paid", "Turn up"];
+  if (cmp) head.push("Last month same day", "Last month total");
+  const row = (name, c) => {
+    const r = [name, pgN(c.billable), pgN(c.paid), pgPct(c.paid, c.billable)];
+    if (cmp) r.push(pgPct(c.lmPaidDay, c.billable), pgPct(c.lmPaid, c.billable));
+    return r;
+  };
+  const cats = PG_CAT_ORDER.filter(k => col.total.cats[k] && col.total.cats[k].billable)
+    .map(k => row(k === "LMV-5" ? "LMV-5 (PTW)" : k, col.total.cats[k]));
+  const total = row("Total", { billable: col.total.billable, paid: col.total.paid,
+    lmPaid: col.total.lmPaid, lmPaidDay: col.total.lmPaidDay });
+  const meterRows = [["Smart meter", col.byMeter.S], ["Non-smart", col.byMeter.N]]
+    .map(([n, m]) => row(n, { billable: m.billable, paid: m.paid, lmPaid: m.lmPaid, lmPaidDay: m.lmPaidDay }));
+  return pgTable(head, cats, total) +
+    '<div class="pg-note">Smart / non-smart (MR source SM):</div>' + pgTable(head, meterRows, null);
+}
+
+function pgBillingHtml(col) {
+  const head = [PG_LEVEL_LABEL[pgSel.level], "Billable", "Billed", "Billing %", "Unbilled"];
+  const t = pgUnitRows(col, m => [pgN(m.billable), pgN(m.billed), pgPct(m.billed, m.billable), pgN(m.billable - m.billed)]);
+  const cats = PG_CAT_ORDER.filter(k => col.total.cats[k] && col.total.cats[k].unbilled)
+    .map(k => [k === "LMV-5" ? "LMV-5 (PTW)" : k, pgN(col.total.cats[k].unbilled), pgPct(col.total.cats[k].unbilled, col.total.cats[k].billable)]);
+  const bands = PG_UNBILLED_BANDS.map((b, i) => [b + " kW/kVA/BHP", pgN(col.total.ub[i])]);
+  return pgTable(head, t.rows, t.total) +
+    '<div class="pg-note">Unbilled by category:</div>' + pgTable(["Category", "Unbilled", "Of billable"], cats, null) +
+    '<div class="pg-note">Unbilled by load:</div>' + pgTable(["Load", "Unbilled"], bands, null);
+}
+
+function pgCountHtml(counts, billed) {
+  const keys = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  const rows = keys.map(k => [escapeHtml(k), pgN(counts[k]), pgPct(counts[k], billed)]);
+  return pgTable(["Code", "Consumers", "Of billed"], rows, ["Total billed", pgN(billed), "100%"]);
+}
+
+function pgUnpaidHtml(col) {
+  const head = [PG_LEVEL_LABEL[pgSel.level], "Unpaid", "Outstanding", "Never paid", "Never paid outst."];
+  const t = pgUnitRows(col, m => [pgN(m.unpaid), pgRs(m.unpaidAmt), pgN(m.never), pgRs(m.neverAmt)]);
+  const bands = PG_UNPAID_BANDS.map((b, i) => [b + " kW/kVA/BHP", pgN(col.total.band[i]), pgRs(col.total.bandAmt[i])]);
+  const cats = PG_CAT_ORDER.filter(k => col.total.cats[k] && col.total.cats[k].unpaid)
+    .map(k => [k === "LMV-5" ? "LMV-5 (PTW)" : k, pgN(col.total.cats[k].unpaid), pgRs(col.total.cats[k].unpaidAmt)]);
+  return pgTable(head, t.rows, t.total) +
+    '<div class="pg-note">Unpaid by load:</div>' + pgTable(["Load", "Unpaid", "Outstanding"], bands, null) +
+    '<div class="pg-note">Unpaid by category:</div>' + pgTable(["Category", "Unpaid", "Outstanding"], cats, null);
+}
+
+/* ---------- disconnection drive (server, kept for offline) ---------- */
+function pgDriveKey() { return "fieldworkProgressDrive:" + String(state.userId || "").trim().toLowerCase(); }
+let pgDrive = null;          /* { at, month, rows:[{status, date, u:[4], grp, meter, acct}], missing } */
+let pgPaysCache = null;      /* payment dates of visited consumers, per data version */
+
+function pgLoadDrive() {
+  try { pgDrive = JSON.parse(localStorage.getItem(pgDriveKey()) || "null"); } catch (e) { pgDrive = null; }
+}
+
+async function pgRefreshDrive() {
+  if (!navigator.onLine) { setStatus("pgDriveStatus", "No internet. Showing the last copy.", "error"); return; }
+  setStatus("pgDriveStatus", "Loading the disconnection drive…");
+  if ($("pgDriveRefreshBtn")) $("pgDriveRefreshBtn").disabled = true;
+  try {
+    const res = await serverPost("disconnection_list", {});
+    if (!res || !res.success) throw new Error((res && res.message) || "Server error");
+    const month = pgTodayYmd().slice(0, 7);
+    const rows = [];
+    let missing = 0;
+    for (const d of res.disconnections || []) {
+      if (!String(d.date || "").startsWith(month)) continue;
+      const c = await getMasterByAccountInput(d.account_id);
+      if (!c) { missing++; continue; }
+      const code = pgSupplyCode(c.SUPPLY_TYPE);
+      const cat = pgCategory(code);
+      rows.push({
+        status: String(d.status || "").toUpperCase(),
+        date: String(d.date || ""),
+        u: [dlVal(c.SDO_CODE), dlVal(c.SUBSTATION), dlVal(c.FEEDER), dlVal(c.feeded_village_name)],
+        grp: pgGroup(code, cat),
+        meter: String(c.MR_SOURCE_CD || "").trim().toUpperCase() === "SM" ? "S" : "N",
+        acct: String(c.ACCT_ID || "")
+      });
+    }
+    pgDrive = { at: new Date().toISOString(), month: month, rows: rows, missing: missing };
+    try { localStorage.setItem(pgDriveKey(), JSON.stringify(pgDrive)); } catch (e) {}
+    setStatus("pgDriveStatus", "");
+  } catch (e) {
+    console.error(e);
+    setStatus("pgDriveStatus", "Could not load the drive summary: " + (e.message || e), "error");
+  } finally {
+    if ($("pgDriveRefreshBtn")) $("pgDriveRefreshBtn").disabled = false;
+  }
+  pgRender();
+}
+
+/* Payment date now (master + daily updates) of the visited consumers. */
+async function pgDrivePays() {
+  const pays = {};
+  for (const r of (pgDrive && pgDrive.rows) || []) {
+    const c = await getMasterByAccountInput(r.acct);
+    pays[r.acct] = c ? parseMasterDate(c.LAST_PAY_DATE) : "";
+  }
+  return pays;
+}
+
+function pgDriveHtml(pays) {
+  if (!pgDrive) return '<div class="pg-note">Tap REFRESH (needs internet) to load this month\'s drive.</div>';
+  const levelIdx = PG_LEVELS.indexOf(pgSel.level);
+  const blank = () => ({ visited: 0, disc: 0, discPaid: 0, tg: 0, tgPaid: 0, paid: 0 });
+  const total = blank();
+  const byUnit = new Map();
+  pgDrive.rows.forEach(r => {
+    if (!pgUnitMatches(r.u)) return;
+    if (pgSel.group !== "ALL" && r.grp !== pgSel.group) return;
+    if (pgSel.meter !== "ALL" && r.meter !== pgSel.meter) return;
+    const pay = pays[r.acct] || "";
+    const paidAfter = !!pay && pay >= r.date;
+    const add = t => {
+      t.visited++;
+      if (r.status === "DISCONNECTED") { t.disc++; if (paidAfter) t.discPaid++; }
+      else if (r.status.indexOf("TIME GIVEN") === 0) { t.tg++; if (paidAfter) t.tgPaid++; }
+      else if (r.status === "PAID") t.paid++;
+    };
+    add(total);
+    const name = r.u[levelIdx];
+    if (!byUnit.has(name)) byUnit.set(name, blank());
+    add(byUnit.get(name));
+  });
+  const fn = t => [pgN(t.visited), pgN(t.disc), pgN(t.discPaid), pgN(t.tg), pgN(t.tgPaid), pgN(t.paid)];
+  const head = [PG_LEVEL_LABEL[pgSel.level], "Visited", "Disconnected", "Paid after disconnection",
+    "Time given", "Time given → paid", "Paid at visit"];
+  const rows = dlSortValues(Array.from(byUnit.keys())).map(n => [escapeHtml(pgLabel(n))].concat(fn(byUnit.get(n))));
+  let note = '<div class="pg-note">This month, latest visit per consumer. Summary last updated: ' +
+    new Date(pgDrive.at).toLocaleString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) + "</div>";
+  if (pgDrive.missing) note += '<div class="pg-note">' + pgN(pgDrive.missing) + " visited consumers are not in this master and are not counted.</div>";
+  return note + pgTable(head, rows, ["Total"].concat(fn(total)));
+}
+
+/* ---------- screen ---------- */
+async function pgRender() {
+  if (!pgData || !$("progressCard") || $("progressCard").classList.contains("hidden")) return;
+  const ctx = pgData.ctx;
+  pgPeriodButtons(ctx);
+  pgSetSwitches();
+  const col = pgCollect();
+  const billed = col.total.billed;
+  $("pgAsOf").textContent = "Data up to " + formatListDate(ctx.report) + " · billing month " +
+    PG_MONTHS[Number(ctx.billingMonth.slice(5, 7)) - 1] + " " + ctx.billingMonth.slice(0, 4) +
+    " · " + PG_GROUP_LABEL[pgSel.group] + (pgSel.meter === "ALL" ? "" : pgSel.meter === "S" ? " · smart meters" : " · non-smart meters");
+  $("pgRevenue").innerHTML = pgRevenueHtml(col, ctx);
+  $("pgTurnUp").innerHTML = pgTurnUpHtml(col, ctx);
+  $("pgBilling").innerHTML = pgBillingHtml(col);
+  $("pgRemark").innerHTML = pgCountHtml(col.total.remark, billed);
+  $("pgBasis").innerHTML = pgCountHtml(col.total.basis, billed);
+  $("pgUnpaid").innerHTML = pgUnpaidHtml(col);
+  const payKey = pgData.key + "|" + (pgDrive ? pgDrive.at : "");
+  if (!pgPaysCache || pgPaysCache.key !== payKey) {
+    pgPaysCache = { key: payKey, pays: await pgDrivePays() };
+  }
+  $("pgDrive").innerHTML = pgDriveHtml(pgPaysCache.pays);
+}
+
+async function openProgress() {
+  if (!state.masterReady || !state.masterDb) {
+    alert("Master Data is not ready yet. Please wait for the master to finish loading.");
+    return;
+  }
+  if (pgBusy) return;
+  pgLoadSel();
+  pgLoadDrive();
+  showMainView("progressCard");
+  window.scrollTo(0, 0);
+
+  const ctx = pgContext();
+  if (!pgData || pgData.key !== ctx.key) {
+    pgBusy = true;
+    showGlobalLoading("Preparing Progress…", "Reading the Master Data on this phone. This takes a few seconds.");
+    try {
+      pgData = await pgCompute(ctx);
+    } catch (e) {
+      console.error(e);
+      alert("Could not read Master Data. " + (e.message || ""));
+      return;
+    } finally {
+      pgBusy = false;
+      hideGlobalLoading();
+    }
+  }
+  pgRefreshDropdowns();
+  await pgRender();
+  if (!pgDrive && navigator.onLine) pgRefreshDrive();
+}
+
+function closeProgress() {
+  showMainView("home");
+}
+
+(() => {
+  return;   /* v19.1: the Progress tab now lives in progress.js; this old block is switched off */
+  if (typeof MAIN_VIEW_IDS !== "undefined") {
+    ["progressCard", "progressModuleCard"].forEach(id => { if (MAIN_VIEW_IDS.indexOf(id) === -1) MAIN_VIEW_IDS.push(id); });
+  }
+  if ($("openProgressBtn")) $("openProgressBtn").addEventListener("click", openProgress);
+  if ($("pgCloseBtn")) $("pgCloseBtn").addEventListener("click", closeProgress);
+  if ($("pgDriveRefreshBtn")) $("pgDriveRefreshBtn").addEventListener("click", pgRefreshDrive);
+
+  [["pgSdo", "sdo", ["sub", "feeder", "village"]], ["pgSub", "sub", ["feeder", "village"]],
+   ["pgFeeder", "feeder", ["village"]], ["pgVillage", "village", []]].forEach(([id, key, below]) => {
+    if (!$(id)) return;
+    $(id).addEventListener("change", () => {
+      pgSel[key] = $(id).value;
+      below.forEach(k => { pgSel[k] = ""; });
+      pgRefreshDropdowns();
+      pgSaveSel();
+      pgRender();
+    });
+  });
+
+  [["pgGroup", "group"], ["pgMeter", "meter"], ["pgLevel", "level"], ["pgCompare", "compare"], ["pgPeriod", "period"]]
+    .forEach(([id, key]) => {
+      if (!$(id)) return;
+      $(id).addEventListener("click", e => {
+        const b = e.target.closest("button[data-v]");
+        if (!b) return;
+        pgSel[key] = b.dataset.v;
+        pgSaveSel();
+        pgRender();
+      });
+    });
+})();
 
 v151InitMyCollection();
 

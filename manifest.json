@@ -1,13 +1,13 @@
 {
-  "name": "Vidyut FieldWork",
-  "short_name": "Vidyut FieldWork",
+  "name": "Fieldwork App",
+  "short_name": "Fieldwork App",
   "description": "Field operations & Staff Monitoring",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#f4f7fb",
-  "theme_color": "#1d70c9",
+  "theme_color": "#0f766e",
   "icons": [
   {
     "src": "icons/icon-72.png",

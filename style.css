@@ -313,3 +313,30 @@ textarea {
   overflow-wrap: anywhere;
   min-width: 0;
 }
+
+
+/* =========================================================
+ * v18.1 THEME: bright teal (replaces the old plain blue)
+ * Only colours change; sizes and layout stay the same.
+ * ========================================================= */
+:root{
+  --accent:#0d9488;
+  --accent-dark:#0f766e;
+  --accent-soft:#ccfbf1;
+  --accent-text:#115e59;
+}
+html{background:#e6f7f9}
+body{min-height:100vh;background:linear-gradient(180deg,#f0fdfa 0%,#e6f7f9 100%)}
+header{background:linear-gradient(120deg,#0f766e 0%,#0d9488 45%,#06b6d4 100%);box-shadow:0 4px 14px rgba(13,148,136,.30)}
+#searchBtn,.upload{background:linear-gradient(135deg,#0d9488,#0891b2);color:#fff}
+.secondary{background:var(--accent-soft);color:var(--accent-text)}
+.primary{background:linear-gradient(135deg,#16a34a,#15803d)}
+.card{border-color:rgba(13,148,136,.16);box-shadow:0 8px 24px rgba(15,118,110,.08)}
+.details{background:linear-gradient(135deg,#ffffff,#f0fdfa);border-color:#bfe9e4}
+.connection-status-value{background:#ccfbf1;color:#0f766e}
+.master-setup-card{border-left-color:var(--accent)}
+.master-progress-bar,.master-setup-bar{background:linear-gradient(90deg,#0d9488,#06b6d4)}
+body .dl-summary{color:var(--accent-dark)}
+body .dl-check input:checked + .dl-switch{background:var(--accent)}
+input:focus,select:focus,textarea:focus{outline:2px solid rgba(13,148,136,.35);border-color:var(--accent)}
+

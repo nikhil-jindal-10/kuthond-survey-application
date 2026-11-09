@@ -8,7 +8,7 @@
  * and show it on the open after that.
  */
 
-const CACHE_VERSION = "v17.2";
+const CACHE_VERSION = "v19.7";
 const CACHE_PREFIX = "fieldwork-pwa-";
 const CACHE = CACHE_PREFIX + CACHE_VERSION;
 
@@ -21,7 +21,9 @@ const REQUIRED = [
   "./",
   "./index.html",
   "./app.js",
-  "./style.css"
+  "./style.css",
+  "./progress.js",
+  "./consumer-view.js"
 ];
 
 /* Cached if present; a missing file does not block install. */
