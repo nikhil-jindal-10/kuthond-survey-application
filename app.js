@@ -4691,9 +4691,16 @@ function xlsxToConsumer(row, header) {
     BILLING_MONTH:n["billingmonth"] || "",
     MASTER_MONTH:n["mastermonth"] || "",
     REPORT_DATE:n["reportdate"] || "",
-    BASE_ID:n["baseid"] || ""
-  };
+    BASE_ID:n["baseid"] || "",
 
+    /* v20.4: Geo Location - smart meter (verified), last month's and this month's billing place */
+    SM_LAT:n["smlat"] || "",
+    SM_LNG:n["smlng"] || "",
+    PREV_LAT:n["prevlat"] || "",
+    PREV_LNG:n["prevlng"] || "",
+    CUR_LAT:n["curlat"] || "",
+    CUR_LNG:n["curlng"] || ""
+  };
 
 
   c._acct_norm=String(c.ACCT_ID||"").replace(/\D/g,"").replace(/^0+/,"");
@@ -11519,6 +11526,84 @@ function showLastBill(c) {
   ["dLastBill", "phoneLastBill", "rcLastBill", "dcLastBill"].forEach(id => {
     if ($(id)) $(id).textContent = lastBillText(c);
   });
+  /* v20.4: Geo Location in every section that shows a consumer */
+  ["dGeo", "phoneGeo", "rcGeo", "dcGeo"].forEach(id => {
+    if ($(id)) $(id).innerHTML = consumerLocationHtml(c);
+  });
+}
+
+/*
+ * =========================================================
+ * v20.4 GEO LOCATION
+ * =========================================================
+ *  SM   = smart meter installation file (verified)
+ *  PREV = master LAT/LON: where it was billed last month (not verified)
+ *  CUR  = billed report: where it was billed this month (not verified)
+ * Rules:
+ *  1. smart meter location                      -> green  "Verified smart meter location"
+ *  2. last + this month within 100 m            -> orange "Not verified - same place in this and last month's billing"
+ *  3. last + this month more than 100 m apart   -> red    both places, "differ by 1.2 km"
+ *  4. only one of them                          -> orange "Not verified - only this / last month's billing location"
+ *  5. none                                      -> "Geo location not available"
+ */
+const GEO_SAME_PLACE_M = 100;
+
+function geoPoint(lat, lng) {
+  const a = Number(lat), b = Number(lng);
+  return a && b && Math.abs(a) <= 90 && Math.abs(b) <= 180 ? [a, b] : null;
+}
+
+function geoDistanceM(p, q) {
+  const r = Math.PI / 180;
+  const x = (q[1] - p[1]) * r * Math.cos((p[0] + q[0]) / 2 * r);
+  const y = (q[0] - p[0]) * r;
+  return Math.round(Math.sqrt(x * x + y * y) * 6371000);
+}
+
+function geoDistanceText(m) {
+  return m < 1000 ? m + " m" : (m / 1000).toFixed(1) + " km";
+}
+
+function geoPlaceHtml(p, caption) {
+  const nav = "https://www.google.com/maps/dir/?api=1&destination=" + p[0] + "," + p[1];
+  return '<div class="geo-place">' + (caption ? '<span class="geo-cap">' + escapeHtml(caption) + "</span>" : "") +
+    '<span class="geo-ll">' + p[0] + ", " + p[1] + "</span>" +
+    '<a class="cl-nav" href="' + escapeHtml(nav) + '" target="_blank" rel="noopener">NAVIGATE</a></div>';
+}
+
+function geoLabelHtml(text, color) {
+  return '<span class="cl-geo" style="color:' + color + '">' + escapeHtml(text) + "</span>";
+}
+
+function consumerLocationHtml(c) {
+  if (!c) return "—";
+  const sm = geoPoint(c.SM_LAT, c.SM_LNG);
+  const prev = geoPoint(c.PREV_LAT, c.PREV_LNG);
+  const cur = geoPoint(c.CUR_LAT, c.CUR_LNG);
+  const GREEN = "#15803d", ORANGE = "#b45309", RED = "#b42318";
+
+  if (sm) {
+    return geoPlaceHtml(sm) + geoLabelHtml("Verified smart meter location (स्मार्ट मीटर स्थान, सत्यापित)", GREEN);
+  }
+  if (prev && cur) {
+    const d = geoDistanceM(prev, cur);
+    if (d <= GEO_SAME_PLACE_M) {
+      return geoPlaceHtml(cur) + geoLabelHtml("Not verified, but almost the same place in this and last month's billing (" +
+        geoDistanceText(d) + " apart) (असत्यापित, दोनों माह लगभग एक ही स्थान)", ORANGE);
+    }
+    return geoPlaceHtml(cur, "This month's billing") + geoPlaceHtml(prev, "Last month's billing") +
+      geoLabelHtml("Not verified: this and last month's billing places differ by " + geoDistanceText(d) +
+        " (असत्यापित, दोनों माह के स्थान अलग)", RED);
+  }
+  if (cur) {
+    return geoPlaceHtml(cur) + geoLabelHtml("Not verified: only this month's billing location (last month's not available) " +
+      "(असत्यापित, केवल इस माह का स्थान)", ORANGE);
+  }
+  if (prev) {
+    return geoPlaceHtml(prev) + geoLabelHtml("Not verified: only last month's billing location (this month's not available yet) " +
+      "(असत्यापित, केवल पिछले माह का स्थान)", ORANGE);
+  }
+  return "Geo location not available (स्थान उपलब्ध नहीं)";
 }
 
 /* =========================================================
@@ -11955,7 +12040,7 @@ async function syncMasterUpdates(force, fromButton) {
 }
 
 setInterval(() => syncMasterUpdates(false), MASTER_SYNC_EVERY_MS);
-setTimeout(() => syncMasterUpdates(true), 25000);
+setTimeout(() => syncMasterUpdates(true), 10000);
 window.addEventListener("online", () => setTimeout(() => syncMasterUpdates(true), 8000));
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") setTimeout(() => syncMasterUpdates(false), 6000);

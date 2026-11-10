@@ -1,6 +1,6 @@
 /*
  * =========================================================
- * FIELDWORK APP - CONSUMER DETAILS (consumer-view.js, v19.6)
+ * FIELDWORK APP - CONSUMER DETAILS (consumer-view.js, v20.4)
  * =========================================================
  * Loaded after app.js. Home -> CONSUMER DETAILS: search any
  * consumer in the Master Data on this phone (works offline) and
@@ -184,6 +184,21 @@
     return "<div><span>" + e(label) + "</span><b>" + value + "</b></div>";
   }
 
+  /* v20.3: NAVIGATE opens Google Maps directions to the consumer. */
+  const GEO_SOURCE_TEXT = {
+    SM: ["Verified (smart meter installation)", "#15803d"],
+    BILL: ["Approximate (meter reading place, billed report)", "#b45309"],
+    MASTER: ["Approximate (master data)", "#b45309"]
+  };
+  function locationHtml(c) {
+    const lat = Number(c.GEO_LAT), lng = Number(c.GEO_LNG);
+    if (!lat || !lng || Math.abs(lat) > 90 || Math.abs(lng) > 180) return "Not available";
+    const src = GEO_SOURCE_TEXT[String(c.GEO_SOURCE || "").toUpperCase()] || ["Approximate", "#b45309"];
+    const nav = "https://www.google.com/maps/dir/?api=1&destination=" + lat + "," + lng;
+    return '<a class="cl-nav" href="' + e(nav) + '" target="_blank" rel="noopener">NAVIGATE (Google Maps)</a>' +
+      '<span class="cl-geo" style="color:' + src[1] + '">' + e(src[0]) + "</span>";
+  }
+
   function showDetails(c) {
     const sm = String(c.MR_SOURCE_CD || "").trim().toUpperCase();
     const meter = (typeof getConsumerMeterNo === "function" ? getConsumerMeterNo(c) : c.METER_NO) || "";
@@ -200,6 +215,7 @@
       row("Connection Date (DOC)", date(c.DOC)) +
       row("Meter No / Reading", show(meter) + " / " + show(c.CURRENT_READING)) +
       row("Meter Type", sm ? (sm === "SM" ? "Smart meter (SM)" : e(sm)) : "—") +
+      row("Geo Location", typeof consumerLocationHtml === "function" ? consumerLocationHtml(c) : locationHtml(c)) +
       row("Total Outstanding", money(c.TOTAL_OUTSTANDING)) +
       row("Last Payment", date(c.LAST_PAY_DATE) + (String(c.LAST_PAY_AMOUNT || "").trim() ? " · " + money(c.LAST_PAY_AMOUNT) : "")) +
       row("Paid This Month (total)", money(c.THIS_MONTH_TOTAL_PAY_AMT)) +
@@ -221,7 +237,14 @@
     ".cl-acct{font-size:13px;opacity:.9;font-weight:700;letter-spacing:.5px}" +
     ".cl-name{font-size:19px;font-weight:800;margin-top:2px}" +
     ".cl-status{display:inline-block;margin-top:8px;background:rgba(255,255,255,.2);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700}" +
-    "#clDetails .details a{color:#0f766e}";
+    "#clDetails .details a{color:#0f766e}" +
+    ".cl-nav{display:inline-block;background:#0d9488;color:#fff!important;text-decoration:none;" +
+    "padding:7px 12px;border-radius:8px;font-size:13px;font-weight:700;margin:2px 0}" +
+    ".cl-geo{display:block;font-size:11.5px;font-weight:600;margin-top:4px;line-height:1.35}" +
+    ".details .geo-place{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin:2px 0 6px;border:0;padding:0}" +
+    ".geo-cap{width:100%;font-size:11.5px;font-weight:700;color:#475569}" +
+    ".geo-ll{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}" +
+    ".geo-place .cl-nav{padding:5px 10px;font-size:12px;margin:0}";
   document.head.appendChild(style);
 
   on("openConsumerLookupBtn", "click", openLookup);
