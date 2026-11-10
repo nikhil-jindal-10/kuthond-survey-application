@@ -6004,7 +6004,9 @@ function masterNotice(text, kind) {
     card.insertAdjacentElement("afterend", el);
   }
   if (!text) { el.classList.add("hidden"); return; }
+  clearTimeout(masterNotice.hideTimer);
   const colors = {
+    ok: "background:#e7f6ec;border:1px solid #16a34a;color:#14532d",
     warn: "background:#fff7df;border:1px solid #e09a00;color:#6b3b00",
     info: "background:#e0f7f4;border:1px solid #0d9488;color:#0f5f58",
     error: "background:#fde8e8;border:1px solid #d92d20;color:#8a1c12"
@@ -6016,6 +6018,12 @@ function masterNotice(text, kind) {
 }
 
 const masterLoadTimer = { started: 0, pct: 0 };
+
+/* v20.1: a notice that goes away by itself (daily update done / up to date) */
+function masterNoticeBrief(text, kind, ms) {
+  masterNotice(text, kind);
+  masterNotice.hideTimer = setTimeout(() => masterNotice(""), ms || 6000);
+}
 
 /* Turns the download / loading progress into the notice (called from updateMasterSetupUI). */
 function masterNoticeProgress(status, message) {
@@ -11809,7 +11817,7 @@ function applyMasterChangeBatch(storeName, entries) {
   });
 }
 
-async function applyMasterChangeFile(file, meta) {
+async function applyMasterChangeFile(file, meta, onProgress) {
   if (String(file.base_id || "") !== String(meta.base_id || "")) {
     throw new Error("This update belongs to another master.");
   }
@@ -11818,6 +11826,7 @@ async function applyMasterChangeFile(file, meta) {
   let changed = 0;
   for (let i = 0; i < entries.length; i += MASTER_CHANGE_BATCH) {
     changed += await applyMasterChangeBatch(storeName, entries.slice(i, i + MASTER_CHANGE_BATCH));
+    if (onProgress) onProgress(Math.min(entries.length, i + MASTER_CHANGE_BATCH), entries.length);
     await new Promise(resolve => setTimeout(resolve, 0));     /* keep the screen responsive */
   }
   return changed;
@@ -11856,16 +11865,18 @@ async function syncMasterUpdates(force, fromButton) {
   try {
     for (let round = 0; round < 2; round++) {
       let meta = Object.assign({}, getLocalMasterMeta() || {});
+      masterNotice("Checking for daily master updates… (दैनिक अपडेट जाँच)", "info");
       const res = await serverPost("master_updates", {
         base_id: meta.base_id || "",
         seq: Number(meta.updates_seq) || 0
       });
-      if (!res || !res.success || !res.available) return;
+      if (!res || !res.success || !res.available) { masterNotice(""); return; }
 
       if (res.master_changed) {
         const remote = await checkAssignedMaster();
         if (String(remote.master_file_id || "") === String(meta.master_file_id || "") &&
             String(meta.parser_version || "") === MASTER_PARSER_VERSION) {
+          masterNotice("");
           return;     /* this phone already has the newest master file */
         }
         await backgroundMasterUpdate(remote);
@@ -11883,12 +11894,20 @@ async function syncMasterUpdates(force, fromButton) {
       }
 
       let total = 0;
-      for (const d of res.downloads || []) {
+      const files = res.downloads || [];
+      for (let n = 0; n < files.length; n++) {
+        const d = files[n];
         if (Number(d.from_seq) > (Number(meta.updates_seq) || 0)) break;   /* gap: next time */
+        const which = "daily update " + d.seq + (files.length > 1 ? " (" + (n + 1) + " of " + files.length + ")" : "");
+        masterNotice("Downloading " + which + (d.size ? ", " + formatBytes(d.size) : "") + "… (दैनिक अपडेट डाउनलोड)", "info");
         const r = await fetch(d.url);
         if (!r.ok) throw new Error("Update download failed (HTTP " + r.status + ")");
         const file = await gunzipJson(await r.arrayBuffer());
-        total += await applyMasterChangeFile(file, meta);
+        total += await applyMasterChangeFile(file, meta, (done, all) => {
+          masterNotice("Loading " + which + ": " + Math.round(100 * done / Math.max(all, 1)) + "% (" +
+            done.toLocaleString("en-IN") + " of " + all.toLocaleString("en-IN") +
+            " consumers) — keep the app open. (ऐप खुला रखें)", "warn");
+        });
         meta = Object.assign({}, getLocalMasterMeta(), {
           updates_seq: Number(file.seq) || 0,
           report_date: file.report_date || meta.report_date || "",
@@ -11906,6 +11925,12 @@ async function syncMasterUpdates(force, fromButton) {
         dlOptions = null;          /* lists re-read their filter choices */
         showAppToast("Master data updated: " + total.toLocaleString("en-IN") +
           " consumers (report " + (meta.report_date || "") + "). (मास्टर डेटा अपडेट)");
+        masterNoticeBrief("Daily update loaded: " + total.toLocaleString("en-IN") + " consumers changed · data up to " +
+          (meta.report_date || "-") + ". (दैनिक अपडेट लोड हुआ)", "ok", 8000);
+      } else if (fromButton) {
+        masterNoticeBrief("Master data is up to date · data up to " + (meta.report_date || "-") + ". (डेटा अपडेटेड है)", "ok", 5000);
+      } else {
+        masterNotice("");
       }
       return;
     }
@@ -11918,6 +11943,11 @@ async function syncMasterUpdates(force, fromButton) {
       : "Master Data update could not finish now; it will try again. (" + text + ")";
     masterSyncLine(msg);
     showAppToast(msg, 8000);
+    const monthlyMsg = $("masterNotice") && /monthly master/.test($("masterNotice").textContent);
+    if (!monthlyMsg) {                       /* the monthly master shows its own message */
+      masterNoticeBrief(noSpace ? msg : "Daily update could not finish; your data still works, it will try again. " +
+        "(अपडेट पूरा नहीं हुआ, फिर कोशिश होगी)", "error", 15000);
+    }
     refreshDataUpTo();
   } finally {
     masterSyncRunning = false;
