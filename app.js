@@ -11588,8 +11588,8 @@ function consumerLocationHtml(c) {
   if (prev && cur) {
     const d = geoDistanceM(prev, cur);
     if (d <= GEO_SAME_PLACE_M) {
-      return geoPlaceHtml(cur) + geoLabelHtml("Not verified, but almost the same place in this and last month's billing (" +
-        geoDistanceText(d) + " apart) (असत्यापित, दोनों माह लगभग एक ही स्थान)", ORANGE);
+      return geoPlaceHtml(cur) + geoLabelHtml("Could be correct, but not verified: almost the same place in this and last month's billing (" +
+        geoDistanceText(d) + " apart) (सही हो सकता है, पर सत्यापित नहीं - दोनों माह लगभग एक ही स्थान)", ORANGE);
     }
     return geoPlaceHtml(cur, "This month's billing") + geoPlaceHtml(prev, "Last month's billing") +
       geoLabelHtml("Not verified: this and last month's billing places differ by " + geoDistanceText(d) +

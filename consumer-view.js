@@ -203,9 +203,11 @@
     const sm = String(c.MR_SOURCE_CD || "").trim().toUpperCase();
     const meter = (typeof getConsumerMeterNo === "function" ? getConsumerMeterNo(c) : c.METER_NO) || "";
     const html =
-      '<div class="cl-head"><div class="cl-acct">' + e(c.ACCT_ID) + '</div><div class="cl-name">' + show(c.NAME) + "</div>" +
-      '<div class="cl-status">' + show(c.CONNECTION_STATUS) + "</div></div>" +
-      '<div class="details">' +
+      '<div class="details cl-table">' +
+      row("Account ID", show(c.ACCT_ID)) +
+      row("Name", show(c.NAME)) +
+      row("Connection Status", show(c.CONNECTION_STATUS)) +
+
       row("Father/Husband", show(c.FATHER_NAME)) +
       row("Address", show(c.ADDRESS)) +
       row("Village", show(c.feeded_village_name)) +
@@ -228,15 +230,15 @@
       (c.REPORT_DATE ? " (data up to " + date(c.REPORT_DATE) + ")" : "") + ". View only.</div>";
     $("clDetails").innerHTML = html;
     $("clDetails").classList.remove("hidden");
-    $("clDetails").scrollIntoView({ behavior: "smooth", block: "start" });
+    const head = document.querySelector("header");
+    const top = $("clDetails").getBoundingClientRect().top + window.scrollY - (head ? head.offsetHeight : 0) - 10;
+    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
   }
 
   const style = document.createElement("style");
   style.textContent =
-    ".cl-head{background:linear-gradient(135deg,#0f766e,#0891b2);color:#fff;border-radius:14px;padding:14px;margin:14px 0 10px}" +
-    ".cl-acct{font-size:13px;opacity:.9;font-weight:700;letter-spacing:.5px}" +
-    ".cl-name{font-size:19px;font-weight:800;margin-top:2px}" +
-    ".cl-status{display:inline-block;margin-top:8px;background:rgba(255,255,255,.2);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700}" +
+    ".cl-table{margin-top:14px}" +
+
     "#clDetails .details a{color:#0f766e}" +
     ".cl-nav{display:inline-block;background:#0d9488;color:#fff!important;text-decoration:none;" +
     "padding:7px 12px;border-radius:8px;font-size:13px;font-weight:700;margin:2px 0}" +
