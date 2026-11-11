@@ -3683,6 +3683,7 @@ async function downloadDefaulterPdf() {
 
   dlBusy = true;
   const f = dlReadFilters();
+  const split = $("dlSplit") ? $("dlSplit").value : "ONE";
   let loading = true;
   showGlobalLoading("Preparing the list…", "Collecting consumers from the Master Data.");
 
@@ -3696,10 +3697,15 @@ async function downloadDefaulterPdf() {
       return;
     }
 
-    if (result.count > DL_ROW_WARNING) {
+    /* v20.6: one combined PDF, or a separate PDF for each SDO / Substation / Feeder / Village */
+    const groups = dlSplitGroups(result.rows, split);
+
+    if (result.count > DL_ROW_WARNING || groups.length > DL_SPLIT_WARNING) {
       hideGlobalLoading();
       loading = false;
-      if (!confirm(result.count.toLocaleString("en-IN") + " consumers match. A PDF this large takes time. Continue?")) {
+      const ask = (groups.length > 1 ? groups.length.toLocaleString("en-IN") + " separate PDFs, " : "") +
+        result.count.toLocaleString("en-IN") + " consumers. This takes time. Continue?";
+      if (!confirm(ask)) {
         setStatus("dlStatusMsg", "");
         return;
       }
@@ -3707,89 +3713,28 @@ async function downloadDefaulterPdf() {
       loading = true;
     }
 
-    updateGlobalLoading("Creating PDF…", "Writing " + result.count.toLocaleString("en-IN") + " consumers to the PDF.");
-    await new Promise(resolve => setTimeout(resolve, 50));
-
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
-
-    doc.setFontSize(14);
-    doc.text("DEFAULTER LIST – Fieldwork App", 10, 12);
-
-    doc.setFontSize(8);
-    const meta =
-      "Generated: " + shareDateText(new Date().toISOString()) +
-      "   By: " + (state.userName || "") + " (" + (state.userId || "") + ")" +
-      "   Consumers: " + result.count.toLocaleString("en-IN") +
-      "   Total outstanding: " + dlMoney(result.total);
-    doc.text(meta, 10, 18);
-
-    const filterLines = doc.splitTextToSize("Filters: " + dlFilterSummary(f), 277);
-    doc.text(filterLines, 10, 23);
-    const startY = 25 + filterLines.length * 3.5;
-
-    const body = result.rows.map((r, i) => [
-
-      i + 1, r.account, r.name, r.father, r.address, r.village, r.substation, r.feeder, r.mrSource,
-      r.mobile, r.meter, r.loadText, r.supplyType, formatListDate(r.doc),
-      Math.round(r.outstanding).toLocaleString("en-IN"),
-      formatListDate(r.lastPay), r.lastPayAmount, ""
-    ]);
-
-    doc.autoTable({
-      startY: startY,
-      margin: { left: 10, right: 10 },
-      head: [[
-
-        "S.No", "Account", "Name", "Father/Husband", "Address", "Village", "Substation", "Feeder", "MR Src",
-        "Mobile", "Meter", "Load", "Supply", "DOC", "Outstanding (Rs.)", "Last Pay Date", "Last Pay Amt", "Remarks"
-      ]],
-      body: body,
-      theme: "grid",
-
-      styles: { fontSize: 6.5, cellPadding: 1, overflow: "linebreak", valign: "middle", lineColor: [120, 120, 120], lineWidth: 0.1, textColor: [0, 0, 0] },
-      headStyles: { fillColor: [21, 101, 192], textColor: 255, fontSize: 6.5 },
-      columnStyles: {
-        0: { cellWidth: 7, halign: "right" },
-        1: { cellWidth: 17 },
-        2: { cellWidth: 20 },
-        3: { cellWidth: 18 },
-        4: { cellWidth: 30 },
-        5: { cellWidth: 16 },
-        6: { cellWidth: 14 },
-        7: { cellWidth: 14 },
-        8: { cellWidth: 9 },
-        9: { cellWidth: 16 },
-        10: { cellWidth: 14 },
-        11: { cellWidth: 8 },
-        12: { cellWidth: 9 },
-        13: { cellWidth: 14 },
-        14: { cellWidth: 15, halign: "right" },
-        15: { cellWidth: 14 },
-        16: { cellWidth: 12, halign: "right" },
-        17: { cellWidth: 20, minCellHeight: 8 }
-      },
-
-
-      didDrawPage: data => {
-        doc.setFontSize(7);
-        doc.text(
-          "Page " + doc.internal.getNumberOfPages(),
-          doc.internal.pageSize.getWidth() - 25,
-          doc.internal.pageSize.getHeight() - 5
-        );
-      }
-    });
-
-
-    const pdfName = "Defaulter_List_" + dlFileStamp() + ".pdf";
-    doc.save(pdfName);
-    rememberListPdf("dl", doc.output("blob"), pdfName, "Defaulter List");
+    const files = [];
+    for (let i = 0; i < groups.length; i++) {
+      const g = groups[i];
+      updateGlobalLoading(
+        groups.length > 1 ? "Creating PDF " + (i + 1) + " of " + groups.length + "…" : "Creating PDF…",
+        (g.label ? g.label + ": " : "") + "writing " + g.rows.length.toLocaleString("en-IN") + " consumers.");
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const doc = dlMakePdf(g.rows, g.total, f, g.label);
+      const pdfName = "Defaulter_List_" + (g.label ? dlSafeFileName(g.label) + "_" : "") + dlFileStamp() + ".pdf";
+      doc.save(pdfName);
+      files.push({ blob: doc.output("blob"), name: pdfName });
+      if (groups.length > 1) await new Promise(resolve => setTimeout(resolve, 700));   /* one download at a time */
+    }
+    rememberListPdf("dl", files.length === 1 ? files[0].blob : files, files.length === 1 ? files[0].name : "",
+      "Defaulter List");
 
     setStatus(
       "dlStatusMsg",
-      "PDF saved to the Download folder: " + result.count.toLocaleString("en-IN") +
-      " consumers · " + dlMoney(result.total) + ".",
+      (files.length === 1
+        ? "PDF saved to the Download folder: "
+        : files.length + " PDFs saved to the Download folder (if the phone asks, allow downloading multiple files): ") +
+      result.count.toLocaleString("en-IN") + " consumers · " + dlMoney(result.total) + ".",
       "ok"
     );
 
@@ -3801,6 +3746,105 @@ async function downloadDefaulterPdf() {
     if (loading) hideGlobalLoading();
   }
 }
+
+const DL_SPLIT_WARNING = 25;          /* ask first when more separate PDFs than this */
+const DL_SPLIT_FIELDS = {
+  sdo: "SDO Code",
+  substation: "Substation",
+  feeder: "Feeder",
+  village: "Village"
+};
+
+/* [{ label, rows, total }] - one group for ONE, else one per SDO / Substation / Feeder / Village (A to Z) */
+function dlSplitGroups(rows, split) {
+  const field = DL_SPLIT_FIELDS[split] ? split : "";
+  const sum = list => list.reduce((s, r) => s + (Number(r.outstanding) || 0), 0);
+  if (!field) return [{ label: "", rows: rows, total: sum(rows) }];
+  const map = new Map();
+  rows.forEach(r => {
+    const key = String(r[field] || "").trim() || "BLANK";
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(r);                       /* keeps the chosen sort inside each file */
+  });
+  return Array.from(map.keys())
+    .sort((x, y) => x.localeCompare(y, "en", { numeric: true }))
+    .map(key => ({ label: DL_SPLIT_FIELDS[field] + " " + key, rows: map.get(key), total: sum(map.get(key)) }));
+}
+
+function dlSafeFileName(text) {
+  return String(text || "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60);
+}
+
+/* One defaulter PDF (S.No starts at 1 in every file). */
+function dlMakePdf(rows, total, f, label) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
+
+  doc.setFontSize(14);
+  doc.text("DEFAULTER LIST" + (label ? " – " + label : "") + " – Fieldwork App", 10, 12);
+
+  doc.setFontSize(8);
+  const meta =
+    "Generated: " + shareDateText(new Date().toISOString()) +
+    "   By: " + (state.userName || "") + " (" + (state.userId || "") + ")" +
+    "   Consumers: " + rows.length.toLocaleString("en-IN") +
+    "   Total outstanding: " + dlMoney(total);
+  doc.text(meta, 10, 18);
+
+  const filterLines = doc.splitTextToSize("Filters: " + dlFilterSummary(f), 277);
+  doc.text(filterLines, 10, 23);
+  const startY = 25 + filterLines.length * 3.5;
+
+  const body = rows.map((r, i) => [
+    i + 1, r.account, r.name, r.father, r.address, r.village, r.substation, r.feeder, r.mrSource,
+    r.mobile, r.meter, r.loadText, r.supplyType, formatListDate(r.doc),
+    Math.round(r.outstanding).toLocaleString("en-IN"),
+    formatListDate(r.lastPay), r.lastPayAmount, ""
+  ]);
+
+  doc.autoTable({
+    startY: startY,
+    margin: { left: 10, right: 10 },
+    head: [[
+      "S.No", "Account", "Name", "Father/Husband", "Address", "Village", "Substation", "Feeder", "MR Src",
+      "Mobile", "Meter", "Load", "Supply", "DOC", "Outstanding (Rs.)", "Last Pay Date", "Last Pay Amt", "Remarks"
+    ]],
+    body: body,
+    theme: "grid",
+    styles: { fontSize: 6.5, cellPadding: 1, overflow: "linebreak", valign: "middle", lineColor: [120, 120, 120], lineWidth: 0.1, textColor: [0, 0, 0] },
+    headStyles: { fillColor: [21, 101, 192], textColor: 255, fontSize: 6.5 },
+    columnStyles: {
+      0: { cellWidth: 7, halign: "right" },
+      1: { cellWidth: 17 },
+      2: { cellWidth: 20 },
+      3: { cellWidth: 18 },
+      4: { cellWidth: 30 },
+      5: { cellWidth: 16 },
+      6: { cellWidth: 14 },
+      7: { cellWidth: 14 },
+      8: { cellWidth: 9 },
+      9: { cellWidth: 16 },
+      10: { cellWidth: 14 },
+      11: { cellWidth: 8 },
+      12: { cellWidth: 9 },
+      13: { cellWidth: 14 },
+      14: { cellWidth: 15, halign: "right" },
+      15: { cellWidth: 14 },
+      16: { cellWidth: 12, halign: "right" },
+      17: { cellWidth: 20, minCellHeight: 8 }
+    },
+    didDrawPage: () => {
+      doc.setFontSize(7);
+      doc.text(
+        "Page " + doc.internal.getNumberOfPages(),
+        doc.internal.pageSize.getWidth() - 25,
+        doc.internal.pageSize.getHeight() - 5
+      );
+    }
+  });
+  return doc;
+}
+
 
 /*
  * =========================================================
@@ -11264,9 +11308,18 @@ function showAppToast(text, ms) {
 /* ---------- 2. SHARE PDF ON WHATSAPP (lists) ---------- */
 const listPdfs = {};
 
+/* blob = one PDF, or (v20.6) a list of { blob, name } for separate PDFs: all go in one share */
 function rememberListPdf(prefix, blob, name, title) {
-  listPdfs[prefix] = { blob: blob, name: name, title: title };
-  if ($(prefix + "SharePdfBtn")) $(prefix + "SharePdfBtn").classList.remove("hidden");
+  const files = Array.isArray(blob) ? blob : [{ blob: blob, name: name }];
+  listPdfs[prefix] = { files: files, name: files.map(x => x.name).join(", "), title: title };
+  const btn = $(prefix + "SharePdfBtn");
+  if (btn) {
+    btn.classList.remove("hidden");
+    btn.textContent = files.length > 1
+      ? "SHARE " + files.length + " PDFs ON WHATSAPP(" + files.length + " पीडीएफ व्हाट्सऐप पर भेजें)"
+      : "SHARE PDF ON WHATSAPP(व्हाट्सऐप पर पीडीएफ भेजें)";
+    if (typeof applyLanguage === "function") applyLanguage();      /* English / Hindi as chosen */
+  }
 }
 
 async function shareListPdf(prefix) {
@@ -11274,19 +11327,21 @@ async function shareListPdf(prefix) {
   if (!item) return;
 
   const statusId = prefix + "StatusMsg";
-  const file = new File([item.blob], item.name, { type: "application/pdf" });
+  const files = item.files.map(x => new File([x.blob], x.name, { type: "application/pdf" }));
+  const where = files.length > 1 ? "the " + files.length + " PDFs" : item.name;
 
-  if (!navigator.share || !navigator.canShare || !navigator.canShare({ files: [file] })) {
-    setStatus(statusId, "This device cannot share the PDF from here. Share it from the Download folder: " + item.name, "error");
+  if (!navigator.share || !navigator.canShare || !navigator.canShare({ files: files })) {
+    setStatus(statusId, "This device cannot share " + (files.length > 1 ? "these PDFs" : "the PDF") +
+      " from here. Share " + where + " from the Download folder.", "error");
     return;
   }
 
   try {
-    await navigator.share({ files: [file], title: item.title });
+    await navigator.share({ files: files, title: item.title });
   } catch (e) {
     if (e && e.name === "AbortError") return;
     console.error(e);
-    setStatus(statusId, "Could not open sharing. Share it from the Download folder: " + item.name, "error");
+    setStatus(statusId, "Could not open sharing. Share " + where + " from the Download folder.", "error");
   }
 }
 
@@ -11307,7 +11362,7 @@ async function shareListPdf(prefix) {
 const DL_SAVED_INPUTS = [
   "dlLoadMode", "dlLoadMin", "dlLoadMax", "dlOutMin", "dlPayMode", "dlLongDate",
   "dlSinceDate", "dlDocMode", "dlDocFrom", "dlDocTo",
-  "dlSort1", "dlDir1", "dlSort2", "dlDir2", "dlSort3", "dlDir3"
+  "dlSort1", "dlDir1", "dlSort2", "dlDir2", "dlSort3", "dlDir3", "dlSplit"
 ];
 
 function dlFiltersKey() {

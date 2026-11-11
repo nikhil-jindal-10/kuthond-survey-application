@@ -657,11 +657,16 @@
     const filters = filterText() + "  |  Visits " + visitRange();
     let name;
     if (format === "xlsx") {
-      name = base + ".xlsx";
-      saveXlsx(title, filters, DRIVE_XLS_HEAD, list.map((r, i) => driveXlsRow(r, i, pays)), name);
+      const groups = splitGroups(list, r => r.u);
+      if (groups.length > 25 && !confirm(groups.length + " separate Excel files will be made. Continue?")) return;
+      const files = await saveXlsxSet(groups, (l, t) => saveXlsx(t, filters, DRIVE_XLS_HEAD, l.map((r, i) => driveXlsRow(r, i, pays)), ""),
+        base, title, "pgStatusMsg");
+      return setStatus("pgStatusMsg", xlsDoneText(files, list.length), "ok");
     } else {
-      name = base + ".pdf";
-      saveDrivePdf(list, pays, title, filterText(), name, "pg");
+      const groups = splitGroups(list, r => r.u);
+      if (groups.length > 25 && !confirm(groups.length + " separate PDFs will be made. Continue?")) return;
+      const files = await savePdfSet(groups, (l, t) => makeDrivePdf(l, pays, t, filterText()), base, title, "pg", "pgStatusMsg");
+      return setStatus("pgStatusMsg", pdfDoneText(files, list.length), "ok");
     }
     setStatus("pgStatusMsg", "Downloaded: " + name + " (" + list.length.toLocaleString("en-IN") + " consumers).", "ok");
   }
@@ -694,6 +699,7 @@
   }
 
   function saveXlsx(title, filters, head, rows, fileName) {
+    if (!fileName) fileName = saveXlsx.nextName;                  /* v20.8: set by saveXlsxSet */
     const aoa = [[title], ["Data up to " + formatListDate(data.ctx.report) + "   |   Filters: " + filters +
       "   |   Consumers: " + rows.length], [], head].concat(rows);
     const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -711,7 +717,7 @@
     XLSX.writeFile(wb, fileName, { compression: true });
   }
 
-  function saveDrivePdf(list, pays, title, filters, pdfName, sharePrefix) {
+  function makeDrivePdf(list, pays, title, filters) {
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
@@ -751,9 +757,87 @@
       }
     });
 
-    doc.save(pdfName);
-    if (typeof rememberListPdf === "function") rememberListPdf(sharePrefix, doc.output("blob"), pdfName, title);
+    return doc;
   }
+
+  /* ---------- v20.7: one PDF, or one PDF for each SDO / Substation / Feeder / Village ---------- */
+  const SPLIT_KEY = "fieldworkProgressPdfSplit";
+  const SPLIT_LEVEL = { sdo: [0, "SDO"], substation: [1, "Substation"], feeder: [2, "Feeder"], village: [3, "Village"] };
+  const splitOptions = () =>
+    '<option value="ONE">One file(एक फ़ाइल)</option>' +
+    '<option value="sdo">A file for each SDO(हर एसडीओ की अलग)</option>' +
+    '<option value="substation">A file for each Substation(हर उपकेंद्र की अलग)</option>' +
+    '<option value="feeder">A file for each Feeder(हर फीडर की अलग)</option>' +
+    '<option value="village">A file for each Village(हर ग्राम की अलग)</option>';
+
+  /* v20.8: Excel the same way: one file, or one file for each group */
+  async function saveXlsxSet(groups, write, base, title, statusId) {
+    const names = [];
+    for (let i = 0; i < groups.length; i++) {
+      const g = groups[i];
+      if (groups.length > 1) setStatus(statusId, "Making Excel " + (i + 1) + " of " + groups.length + "…");
+      await new Promise(r => setTimeout(r, 30));
+      saveXlsx.nextName = base + (g.label ? "_" + g.label.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 50) : "") + ".xlsx";
+      write(g.list, g.label ? title + " – " + g.label : title);
+      names.push(saveXlsx.nextName);
+      if (groups.length > 1) await new Promise(r => setTimeout(r, 700));     /* one download at a time */
+    }
+    return names;
+  }
+  const xlsDoneText = (names, n) => (names.length === 1 ? "Excel downloaded: " + names[0]
+    : names.length + " Excel files downloaded (if the phone asks, allow multiple downloads)") +
+    " (" + n.toLocaleString("en-IN") + " consumers).";
+  const splitChoice = () => { try { return localStorage.getItem(SPLIT_KEY) || "ONE"; } catch (e) { return "ONE"; } };
+  function setSplitChoice(v) {
+    try { localStorage.setItem(SPLIT_KEY, v); } catch (e) {}
+    document.querySelectorAll("select.pg-split").forEach(s => { s.value = v; });
+  }
+  function splitRow(id) {
+    const row = document.createElement("div");
+    row.className = "pg-split-row";
+    row.innerHTML = '<label for="' + id + '">Files(फ़ाइलें)</label><select id="' + id + '" class="pg-split">' + splitOptions() + "</select>";
+    row.querySelector("select").value = splitChoice();
+    row.querySelector("select").addEventListener("change", e => setSplitChoice(e.target.value));
+    return row;
+  }
+
+  /* [{ label, list }] in the list's own order; groups A to Z */
+  function splitGroups(list, unitsOf) {
+    const lv = SPLIT_LEVEL[splitChoice()];
+    if (!lv) return [{ label: "", list: list }];
+    const map = new Map();
+    list.forEach(x => {
+      const key = String(label(unitsOf(x)[lv[0]]) || "").trim() || "(blank)";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(x);
+    });
+    return Array.from(map.keys()).sort((a, b) => a.localeCompare(b, "en", { numeric: true }))
+      .map(k => ({ label: lv[1] + " " + k, list: map.get(k) }));
+  }
+
+  /* makes and downloads the PDF(s); all of them go in one SHARE */
+  async function savePdfSet(groups, makeDoc, base, title, sharePrefix, statusId) {
+    const files = [];
+    for (let i = 0; i < groups.length; i++) {
+      const g = groups[i];
+      if (groups.length > 1) setStatus(statusId, "Making PDF " + (i + 1) + " of " + groups.length + "…");
+      await new Promise(r => setTimeout(r, 30));
+      const doc = makeDoc(g.list, g.label ? title + " – " + g.label : title);
+      const name = base + (g.label ? "_" + g.label.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 50) : "") + ".pdf";
+      doc.save(name);
+      files.push({ blob: doc.output("blob"), name: name });
+      if (groups.length > 1) await new Promise(r => setTimeout(r, 700));     /* one download at a time */
+    }
+    if (typeof rememberListPdf === "function") {
+      rememberListPdf(sharePrefix, files.length === 1 ? files[0].blob : files, files.length === 1 ? files[0].name : "", title);
+    }
+    return files;
+  }
+  const pdfDoneText = (files, n) => (files.length === 1 ? "Downloaded: " + files[0].name
+    : files.length + " PDFs downloaded (if the phone asks, allow multiple downloads)") +
+    " (" + n.toLocaleString("en-IN") + " consumers).";
+
+
 
   /* ---------- tap a count: the list of those consumers ---------- */
   /* Same rules as the totals (facts), plus the filters on the screen and the tapped row / column. */
@@ -864,33 +948,34 @@
     $("pgListXlsBtn").disabled = !n;
   }
 
-  function listXlsx() {
+  async function listXlsx() {
     const s = shown;
     if (!s || !s.list.length) return;
     if (!xlsxReady()) return setStatus("pglStatusMsg", "Excel library is not loaded. Please reload the app.", "error");
-    const name = listFileBase(s) + ".xlsx";
-    if (s.kind === "drive") saveXlsx(s.title, s.filters, DRIVE_XLS_HEAD, s.list.map((r, i) => driveXlsRow(r, i, s.pays)), name);
-    else saveXlsx(s.title, s.filters, MASTER_XLS_HEAD, s.list.map(masterXlsRow), name);
-    setStatus("pglStatusMsg", "Excel downloaded: " + name, "ok");
+    const groups = splitGroups(s.list, x => s.kind === "drive" ? x.u : x.f.u);
+    if (groups.length > 25 && !confirm(groups.length + " separate Excel files will be made. Continue?")) return;
+    const files = await saveXlsxSet(groups, (l, t) => s.kind === "drive"
+      ? saveXlsx(t, s.filters, DRIVE_XLS_HEAD, l.map((r, i) => driveXlsRow(r, i, s.pays)), "")
+      : saveXlsx(t, s.filters, MASTER_XLS_HEAD, l.map(masterXlsRow), ""), listFileBase(s), s.title, "pglStatusMsg");
+    setStatus("pglStatusMsg", xlsDoneText(files, s.list.length), "ok");
   }
   const listFileBase = s => "List_" + s.title.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60) + "_" + dlFileStamp();
 
-  function listPdf() {
+  async function listPdf() {
     const s = shown;
     if (!s || !s.list.length) return;
     if (!pdfReady()) return setStatus("pglStatusMsg", "PDF library is not loaded. Please reload the app.", "error");
-    const pdfName = listFileBase(s) + ".pdf";
-    if (s.kind === "drive") {
-      saveDrivePdf(s.list, s.pays, s.title, s.filters, pdfName, "pgl");
-    } else {
+    const groups = splitGroups(s.list, x => s.kind === "drive" ? x.u : x.f.u);
+    if (groups.length > 25 && !confirm(groups.length + " separate PDFs will be made. Continue?")) return;
+    const makeMasterPdf = (list, title) => {
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
       doc.setFontSize(12);
-      doc.text(s.title, 10, 12);
+      doc.text(title, 10, 12);
       doc.setFontSize(8);
       doc.text("Data up to " + formatListDate(data.ctx.report) + ". Billable consumers. Sorted by substation, feeder, village, account.", 10, 17);
-      doc.text("Filters: " + s.filters + "   |   Consumers: " + s.list.length.toLocaleString("en-IN"), 10, 21);
-      const body = s.list.map((x, i) => {
+      doc.text("Filters: " + s.filters + "   |   Consumers: " + list.length.toLocaleString("en-IN"), 10, 21);
+      const body = list.map((x, i) => {
         const c = x.c, f = x.f;
         return [i + 1, c.ACCT_ID, c.NAME || "", c.FATHER_NAME || "", c.ADDRESS || "", label(f.u[3]), label(f.u[1]), label(f.u[2]),
           c.MOBILE_NUMBER || "", c.SUPPLY_TYPE || "", c.LOAD || "", Math.round(f.out).toLocaleString("en-IN"),
@@ -919,11 +1004,16 @@
           doc.text("Page " + doc.internal.getNumberOfPages(), doc.internal.pageSize.getWidth() - 25, doc.internal.pageSize.getHeight() - 5);
         }
       });
-      doc.save(pdfName);
-      if (typeof rememberListPdf === "function") rememberListPdf("pgl", doc.output("blob"), pdfName, s.title);
-    }
-    setStatus("pglStatusMsg", "PDF downloaded: " + pdfName, "ok");
+      return doc;
+    };
+    const files = await savePdfSet(groups,
+      s.kind === "drive" ? (l, t) => makeDrivePdf(l, s.pays, t, s.filters) : makeMasterPdf,
+      listFileBase(s), s.title, "pgl", "pglStatusMsg");
+    setStatus("pglStatusMsg", pdfDoneText(files, s.list.length), "ok");
   }
+
+
+
 
   function closeList() {
     $("pgListModal").classList.add("hidden");
@@ -939,6 +1029,7 @@
       '<div class="pg-modal-box">' +
       '<div class="pg-modal-head"><b id="pgListTitle"></b><button id="pgListCloseBtn" type="button" class="logout">CLOSE</button></div>' +
       '<div id="pgListInfo" class="pg-note"></div>' +
+      '<div id="pgListSplitBox"></div>' +
       '<div class="pg-dl-btns"><button id="pgListPdfBtn" type="button" class="secondary">DOWNLOAD PDF</button>' +
       '<button id="pgListXlsBtn" type="button" class="secondary">DOWNLOAD EXCEL</button></div>' +
       '<button id="pglSharePdfBtn" type="button" class="secondary hidden">SHARE PDF ON WHATSAPP</button>' +
@@ -946,6 +1037,11 @@
       '<div id="pgListBody"></div></div>';
     document.body.appendChild(box);
     box.addEventListener("click", e => { if (e.target === box) closeList(); });
+    /* v20.7: the small PDF files choice, in the list window and above the drive downloads */
+    $("pgListSplitBox").appendChild(splitRow("pgListSplit"));
+    const tg = $("pgListTgBtn") && $("pgListTgBtn").closest(".pg-dl-row");
+    if (tg) tg.parentNode.insertBefore(splitRow("pgDriveSplit"), tg);
+    try { if (typeof applyLanguage === "function") applyLanguage(); } catch (e) {}
   })();
 
   /* ---------- screen ---------- */
@@ -1074,6 +1170,9 @@
     ".pg-dl-name{font-size:13px;font-weight:700;flex:1 1 220px}" +
     ".pg-dl-btns{display:flex;gap:8px;flex:0 0 auto;margin:6px 0}" +
     ".pg-dl-btns button{width:auto;min-width:72px;margin:0;padding:7px 14px;font-size:12.5px;border-radius:999px}" +
+    ".pg-split-row{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 2px;font-size:12px;color:#475569}" +
+    ".pg-split-row label{margin:0;font-size:12px;font-weight:600;color:#475569}" +
+    ".pg-split-row select.pg-split{width:auto;max-width:62%;margin:0;padding:5px 8px;font-size:12px;border-radius:999px;color:#0f766e;font-weight:600}" +
     ".pg-li{border-bottom:1px solid #e2e8f0;padding:8px 2px;font-size:13px}" +
     ".pg-li-sub{color:#475569;font-size:12px;margin-top:2px}" +
     "@media(max-width:480px){#progressCard .pg-table th,#progressCard .pg-table td{padding:5px 5px;font-size:12px}" +

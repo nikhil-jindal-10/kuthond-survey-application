@@ -926,6 +926,15 @@
         <div class="dl-sort"><select id="dlSort3"></select><select id="dlDir3"></select></div>
       </div>
 
+      <label for="dlSplit">PDF files(पीडीएफ फ़ाइलें)</label>
+      <select id="dlSplit">
+        <option value="ONE">One combined PDF(एक संयुक्त पीडीएफ)</option>
+        <option value="sdo">Separate PDF for each SDO Code(हर एसडीओ कोड की अलग पीडीएफ)</option>
+        <option value="substation">Separate PDF for each Substation(हर उपकेंद्र की अलग पीडीएफ)</option>
+        <option value="feeder">Separate PDF for each Feeder(हर फीडर की अलग पीडीएफ)</option>
+        <option value="village">Separate PDF for each Village(हर ग्राम की अलग पीडीएफ)</option>
+      </select>
+
       <div id="dlStatusMsg" class="status"></div>
 
       <button id="dlPreviewBtn" class="secondary" type="button">COUNT CONSUMERS(उपभोक्ता गिनें)</button>
@@ -2019,9 +2028,9 @@
 <script src="./jspdf.umd.min.js"></script>
 <script src="./jspdf.plugin.autotable.min.js"></script>
 
-<script src="app.js?v=20.5"></script>
-<script src="progress.js?v=20.5"></script>
-<script src="consumer-view.js?v=20.5"></script>
+<script src="app.js?v=20.8"></script>
+<script src="progress.js?v=20.8"></script>
+<script src="consumer-view.js?v=20.8"></script>
 
 <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));}</script>
 </body>
