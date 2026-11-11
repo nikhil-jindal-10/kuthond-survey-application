@@ -4743,7 +4743,9 @@ function xlsxToConsumer(row, header) {
     PREV_LAT:n["prevlat"] || "",
     PREV_LNG:n["prevlng"] || "",
     CUR_LAT:n["curlat"] || "",
-    CUR_LNG:n["curlng"] || ""
+    CUR_LNG:n["curlng"] || "",
+    /* v20.10: MR source of last month's billing (MR_SOURCE_CD = this month's once billed) */
+    PREV_MR_SOURCE:n["prevmrsource"]
   };
 
 

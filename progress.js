@@ -63,6 +63,11 @@
   const catLabel = cat => cat === "LMV-5" ? "LMV-5 (PTW)" : cat;
   const isBillable = s => BILLABLE.has(String(s || "").toUpperCase().replace(/\s+/g, ""));
   const isSmart = c => String(c.MR_SOURCE_CD || "").trim().toUpperCase() === "SM";
+  /* v20.10: last month's MR source (from the master); null until the phone has it */
+  const prevMr = c => {
+    const v = c.PREV_MR_SOURCE;
+    return v === undefined || v === null || String(v).trim() === "" ? null : dlVal(v);
+  };
   function num(v) {
     const n = Number(String(v == null ? "" : v).replace(/,/g, "").trim());
     return isFinite(n) ? n : 0;
@@ -102,7 +107,7 @@
     const day = Math.min(Number(report.slice(8, 10)), daysIn(masterMonth));
     return {
       key: [state.activeMasterStore, state.masterCount, meta.base_id || "", meta.updates_seq || 0,
-        meta.master_file_id || "", meta.report_date || "", "v20.9"].join("|"),
+        meta.master_file_id || "", meta.report_date || "", "v20.10"].join("|"),
       report: report,
       billingMonth: billingMonth,
       monthStart: billingMonth + "-01",
@@ -121,7 +126,8 @@
     paid: 0, lmPaid: 0, lmPaidDay: 0,
     unpaid: 0, unpaidAmt: 0, band: [0, 0, 0, 0], bandAmt: [0, 0, 0, 0],
     never: 0, neverAmt: 0,
-    ub: [0, 0, 0, 0, 0, 0], cats: {}, remark: {}, basis: {}
+    ub: [0, 0, 0, 0, 0, 0], cats: {}, remark: {}, basis: {},
+    mrNow: {}, mrPrev: {}, prevKnown: 0       /* v20.10: billed this month by MR source / last month's MR source */
   });
   const newCat = () => ({ billable: 0, paid: 0, lmPaid: 0, lmPaidDay: 0, unbilled: 0, unpaid: 0, unpaidAmt: 0 });
 
@@ -133,7 +139,7 @@
   function facts(c, ctx) {
     const cat = category(supplyCode(c.SUPPLY_TYPE));
     const f = {
-      cat: cat, grp: group(cat), meter: isSmart(c) ? "S" : "N", mr: dlVal(c.MR_SOURCE_CD),
+      cat: cat, grp: group(cat), meter: isSmart(c) ? "S" : "N", mr: dlVal(c.MR_SOURCE_CD), mrPrev: prevMr(c),
       u: [dlVal(c.SDO_CODE), dlVal(c.SUBSTATION), dlVal(c.FEEDER), dlVal(c.feeded_village_name)]
     };
     /* revenue */
@@ -196,8 +202,10 @@
         if (f.lmPaid) { m.lmPaid++; ce.lmPaid++; }
         if (f.lmInDay) { m.lmPaidDay++; ce.lmPaidDay++; }
 
+        if (f.mrPrev !== null) { m.prevKnown++; m.mrPrev[f.mrPrev] = (m.mrPrev[f.mrPrev] || 0) + 1; }
         if (f.billed) {
           m.billed++;
+          m.mrNow[f.mr] = (m.mrNow[f.mr] || 0) + 1;      /* MR source of this month's bill */
           m.remark[f.remark] = (m.remark[f.remark] || 0) + 1;
           m.basis[f.basis] = (m.basis[f.basis] || 0) + 1;
         } else {
@@ -476,12 +484,22 @@
       PCT(m.billed, m.billable), L(m.billable - m.billed, Object.assign({ m: "unbilled" }, q))];
     const meters = [["Smart meter", col.byMeter.S, "S"], ["Non-smart meter", col.byMeter.N, "N"]]
       .map(([n, m, k]) => [n].concat(bill(m, { meterOnly: k })));
-    const mrRows = col.mrs.map(([n, m, raw]) => [escapeHtml(n)].concat(bill(m, { mr: raw })));
+    /* v20.10: this month = MR source of this month's bill; last month = MR source in the master */
+    const tot = col.total, prevOk = tot.prevKnown > 0;
+    const mrKeys = Array.from(new Set(Object.keys(tot.mrNow).concat(Object.keys(tot.mrPrev))))
+      .sort((a, b) => ((tot.mrPrev[b] || 0) - (tot.mrPrev[a] || 0)) || ((tot.mrNow[b] || 0) - (tot.mrNow[a] || 0)));
+    const mrRows = mrKeys.map(k => [escapeHtml(label(k)),
+      L(tot.mrNow[k] || 0, { m: "billed", mr: k }),
+      prevOk ? L(tot.mrPrev[k] || 0, { m: "billable", mrPrev: k }) : "—",
+      prevOk ? PCT(tot.mrNow[k] || 0, tot.mrPrev[k] || 0) : "—"]);
+    const mrTotal = ["Total", L(tot.billed, { m: "billed" }), prevOk ? N(tot.prevKnown) : "—",
+      prevOk ? PCT(tot.billed, tot.prevKnown) : "—"];
     return table([LEVEL_LABEL[sel.level], "Billable", "Billed", "Billing %", "Unbilled"], t.rows, t.total) +
       note("Smart meter and non-smart meter billing:") +
       table(["Meter", "Billable", "Billed", "Billing %", "Unbilled"], meters, null) +
-      note("Billing by MR Source:") +
-      table(["MR Source", "Billable", "Billed", "Billing %", "Unbilled"], mrRows, null) +
+      note("MR Source of this month's billing, compared with last month's billing:") +
+      table(["MR Source", "Billed this month", "Last month", "Of last month"], mrRows, mrTotal) +
+      (prevOk ? "" : note("Last month's MR source comes with the next daily update (Fieldwork Master Tool).")) +
       note("Unbilled by category:") + table(["Category", "Unbilled", "Of billable"], cats, null) +
       note("Unbilled by load:") + table(["Load", "Unbilled"], bands, null);
   }
@@ -864,6 +882,7 @@
     if (q.unit !== undefined && f.u[q.lvl] !== q.unit) return false;
     if (q.cat && f.cat !== q.cat) return false;
     if (q.mr !== undefined && f.mr !== q.mr) return false;
+    if (q.mrPrev !== undefined && f.mrPrev !== q.mrPrev) return false;
     switch (q.m) {
       case "billable": return true;
       case "paid": return f.paid;
