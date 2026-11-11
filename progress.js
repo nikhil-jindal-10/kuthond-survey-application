@@ -102,7 +102,7 @@
     const day = Math.min(Number(report.slice(8, 10)), daysIn(masterMonth));
     return {
       key: [state.activeMasterStore, state.masterCount, meta.base_id || "", meta.updates_seq || 0,
-        meta.master_file_id || "", meta.report_date || "", "v19.7"].join("|"),
+        meta.master_file_id || "", meta.report_date || "", "v20.9"].join("|"),
       report: report,
       billingMonth: billingMonth,
       monthStart: billingMonth + "-01",
@@ -133,7 +133,7 @@
   function facts(c, ctx) {
     const cat = category(supplyCode(c.SUPPLY_TYPE));
     const f = {
-      cat: cat, grp: group(cat), meter: isSmart(c) ? "S" : "N",
+      cat: cat, grp: group(cat), meter: isSmart(c) ? "S" : "N", mr: dlVal(c.MR_SOURCE_CD),
       u: [dlVal(c.SDO_CODE), dlVal(c.SUBSTATION), dlVal(c.FEEDER), dlVal(c.feeded_village_name)]
     };
     /* revenue */
@@ -180,7 +180,7 @@
         const f = facts(c, ctx);
         const uKey = f.u.join("\u0001");
         if (!units.has(uKey)) units.set(uKey, f.u);
-        const key = uKey + "\u0001" + f.grp + "\u0001" + f.meter;
+        const key = uKey + "\u0001" + f.grp + "\u0001" + f.meter + "\u0001" + f.mr;
         let m = cells.get(key);
         if (!m) { m = newCell(); cells.set(key, m); }
         const ce = m.cats[f.cat] || (m.cats[f.cat] = newCat());
@@ -350,6 +350,7 @@
     const total = newCell();
     const byUnit = new Map();
     const byMeter = { S: newCell(), N: newCell() };
+    const byMr = new Map();                          /* v20.9: Billing by MR Source */
 
     data.cells.forEach((m, key) => {
       const parts = key.split("\u0001");
@@ -359,13 +360,17 @@
       add(byMeter[parts[5]], m);                     /* smart / non-smart table ignores the meter switch */
       if (sel.meter !== "ALL" && parts[5] !== sel.meter) return;
       add(total, m);
+      const mr = parts[6];
+      if (!byMr.has(mr)) byMr.set(mr, newCell());
+      add(byMr.get(mr), m);
       const name = u[levelIdx];
       if (!byUnit.has(name)) byUnit.set(name, newCell());
       add(byUnit.get(name), m);
     });
 
     const units = dlSortValues(Array.from(byUnit.keys())).map(n => [label(n), byUnit.get(n), n]);
-    return { total: total, units: units, byMeter: byMeter };
+    const mrs = dlSortValues(Array.from(byMr.keys())).map(n => [label(n), byMr.get(n), n]);
+    return { total: total, units: units, byMeter: byMeter, mrs: mrs };
   }
 
   /* ---------- formatting ---------- */
@@ -466,7 +471,17 @@
     const cats = CAT_ORDER.filter(k => col.total.cats[k] && col.total.cats[k].unbilled)
       .map(k => [catLabel(k), L(col.total.cats[k].unbilled, { m: "unbilled", cat: k }), PCT(col.total.cats[k].unbilled, col.total.cats[k].billable)]);
     const bands = UNBILLED_BANDS.map((b, i) => [b + " kW/kVA/BHP", L(col.total.ub[i], { m: "ubBand", band: i })]);
+    /* v20.9: smart / non-smart (the meter switch is not applied here) and MR Source */
+    const bill = (m, q) => [L(m.billable, Object.assign({ m: "billable" }, q)), L(m.billed, Object.assign({ m: "billed" }, q)),
+      PCT(m.billed, m.billable), L(m.billable - m.billed, Object.assign({ m: "unbilled" }, q))];
+    const meters = [["Smart meter", col.byMeter.S, "S"], ["Non-smart meter", col.byMeter.N, "N"]]
+      .map(([n, m, k]) => [n].concat(bill(m, { meterOnly: k })));
+    const mrRows = col.mrs.map(([n, m, raw]) => [escapeHtml(n)].concat(bill(m, { mr: raw })));
     return table([LEVEL_LABEL[sel.level], "Billable", "Billed", "Billing %", "Unbilled"], t.rows, t.total) +
+      note("Smart meter and non-smart meter billing:") +
+      table(["Meter", "Billable", "Billed", "Billing %", "Unbilled"], meters, null) +
+      note("Billing by MR Source:") +
+      table(["MR Source", "Billable", "Billed", "Billing %", "Unbilled"], mrRows, null) +
       note("Unbilled by category:") + table(["Category", "Unbilled", "Of billable"], cats, null) +
       note("Unbilled by load:") + table(["Load", "Unbilled"], bands, null);
   }
@@ -848,6 +863,7 @@
     else if (sel.meter !== "ALL" && f.meter !== sel.meter) return false;
     if (q.unit !== undefined && f.u[q.lvl] !== q.unit) return false;
     if (q.cat && f.cat !== q.cat) return false;
+    if (q.mr !== undefined && f.mr !== q.mr) return false;
     switch (q.m) {
       case "billable": return true;
       case "paid": return f.paid;
