@@ -2885,6 +2885,34 @@ async function refreshVideoCounts(pendingVideos) {
 }
 
 /* Info line in the Videos section. */
+/* v20.12: videos recorded more than a day ago and still on this phone (internet problem, upload not tapped) */
+function showVideoWaitNotice(videos) {
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const old = (videos || []).filter(v => { const t = Date.parse(v.recorded_at || ""); return !isNaN(t) && t < dayAgo; });
+  let el = $("videoWaitNotice");
+  if (!old.length) { if (el) el.classList.add("hidden"); return; }
+  if (!el) {
+    const card = $("loggedUserName") && $("loggedUserName").closest(".card");
+    if (!card) return;
+    el = document.createElement("div");
+    el.id = "videoWaitNotice";
+    el.setAttribute("role", "status");
+    el.style.cssText = "margin:0 0 12px;padding:7px 10px;border-radius:8px;font-size:12px;font-weight:600;line-height:1.4;" +
+      "background:#fff7df;border:1px solid #e09a00;color:#6b3b00;cursor:pointer";
+    el.addEventListener("click", () => {
+      showMainView("home");
+      const btn = $("uploadVideosBtn");
+      if (btn) btn.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    card.insertAdjacentElement("afterend", el);
+  }
+  const n = old.length;
+  el.textContent = n + (n === 1 ? " video has" : " videos have") + " been waiting on this phone for more than a day. " +
+    "Tap here, then UPLOAD VIDEOS AND RECORDS BOTH (Wi-Fi is best). " +
+    "(" + n + " वीडियो एक दिन से अधिक समय से अपलोड नहीं हुए - यहाँ टैप करें)";
+  el.classList.remove("hidden");
+}
+
 async function refreshVideoUploadInfo() {
 
   const info = $("videoUploadInfo");
@@ -2894,6 +2922,8 @@ async function refreshVideoUploadInfo() {
   try { videos = await getPendingVideos(); } catch (e) {}
 
   refreshVideoCounts(videos).catch(err => console.error("Video counts failed", err));
+  showVideoWaitNotice(videos);                                     /* v20.12 */
+
 
 
 
@@ -3337,6 +3367,10 @@ function dlRefreshCascade(changedId) {
     const from = changedId ? pos + 1 : 0;
 
     let rows = o[chain.rows];
+    /* v20.12: an office list limits every filter below it to the consumers on that list */
+    const npl = $("dlNpl") ? $("dlNpl").value : "ALL";
+    if (npl === "BOTH") rows = rows.filter(r => r.npl && r.npl !== "-");
+    else if (npl !== "ALL") rows = rows.filter(r => r.npl === npl);
 
     chain.ids.forEach((id, i) => {
       const field = chain.fields[i];
@@ -3383,6 +3417,7 @@ function dlUpdatePayBoxes() {
   const mode = $("dlPayMode").value;
   $("dlLongBox").classList.toggle("hidden", mode !== "LONG");
   $("dlSinceBox").classList.toggle("hidden", mode !== "SINCE");
+  if ($("dlNplPaidBox")) $("dlNplPaidBox").classList.toggle("hidden", !$("dlNpl") || $("dlNpl").value === "ALL");
 }
 
 function dlUpdateLoadBox() {
@@ -3401,12 +3436,14 @@ function dlNumbersOnly(input) {
   });
 }
 
-async function openDefaulterList() {
+async function openDefaulterList(mode) {
 
   if (!state.masterReady || !state.masterDb) {
     alert("Master Data is not ready yet. Please wait for the master to finish loading.");
     return;
   }
+  mode = typeof mode === "string" ? mode : "ALL";                  /* v20.12 */
+
 
   dlInitSortSelects();
   dlUpdatePayBoxes();
@@ -3416,7 +3453,13 @@ async function openDefaulterList() {
   showMainView("defaulterListCard");
   window.scrollTo(0, 0);
 
-  if (dlOptions && dlOptions.key === state.activeMasterStore + "|" + state.masterCount) return;
+  if (dlOptions && dlOptions.key === state.activeMasterStore + "|" + state.masterCount) {
+    dlSwitchNplMode(mode);
+    return;
+  }
+  dlNplMode = mode;
+  if ($("dlNpl")) $("dlNpl").value = mode;
+  dlUpdateNplTitle();
 
   $("dlFilters").classList.add("hidden");
   setStatus("dlStatusMsg", "");
@@ -3478,6 +3521,8 @@ function dlReadFilters() {
     sinceDate: $("dlSinceDate").value || "",
     docFrom: $("dlDocMode").value === "BETWEEN" ? ($("dlDocFrom").value || "") : "",
     docTo: $("dlDocMode").value === "BETWEEN" ? ($("dlDocTo").value || "") : "",
+    npl: $("dlNpl") ? $("dlNpl").value : "ALL",
+    nplPaid: $("dlNplPaid") && $("dlNpl") && $("dlNpl").value !== "ALL" ? $("dlNplPaid").value : "ALL",
     sort: sort
   };
 }
@@ -3518,11 +3563,39 @@ function dlMatches(c, f) {
     if (f.docTo && doc > f.docTo) return false;
   }
 
+  if (f.npl && f.npl !== "ALL") {                                   /* v20.11: office list */
+    const t = nplTypeOf(c);
+    if (!t || (f.npl !== "BOTH" && t !== f.npl)) return false;
+    if (f.nplPaid === "PAID" && !nplPaidSince(c)) return false;
+    if (f.nplPaid === "NOTPAID" && nplPaidSince(c)) return false;
+  }
+
   return true;
+}
+
+/* v20.11: office Never Paid / Long Unpaid list (Fieldwork Master Tool, data\lists) */
+function nplTypeOf(c) {
+  const t = String((c && c.NPL_TYPE) || "").trim().toUpperCase();
+  return t === "NEVER PAID" || t === "LONG UNPAID" ? t : "";
+}
+/* paid after the list: never paid = any payment; long unpaid = a payment after the list's last payment */
+function nplPaidSince(c) {
+  const t = nplTypeOf(c);
+  const pay = parseMasterDate(c.LAST_PAY_DATE);
+  if (!t || !pay || pay < "1950-01-01") return false;
+  if (t === "NEVER PAID") return true;
+  const listPay = parseMasterDate(c.NPL_PAY_DATE);
+  return !listPay || pay > listPay;
+}
+function nplTag(c) {
+  const t = nplTypeOf(c);
+  if (!t) return "";
+  return (t === "NEVER PAID" ? "Never paid" : "Long unpaid") + (nplPaidSince(c) ? " (paid)" : "");
 }
 
 function dlRow(c) {
   return {
+    npl: nplTag(c),
     account: String(c.ACCT_ID || ""),
     name: String(c.NAME || ""),
 
@@ -3658,6 +3731,8 @@ function dlFilterSummary(f) {
     f.outMin !== null ? "Outstanding at least " + dlMoney(f.outMin) : "",
     pay,
     f.docFrom || f.docTo ? "DOC: " + (f.docFrom ? date(f.docFrom) : "any") + " to " + (f.docTo ? date(f.docTo) : "any") : "",
+    f.npl && f.npl !== "ALL" ? "Office list: " + ({ "NEVER PAID": "Never paid", "LONG UNPAID": "Long unpaid", BOTH: "Never paid + Long unpaid" }[f.npl]) +
+      ({ ALL: "", PAID: " (paid after the list)", NOTPAID: " (not paid yet)" }[f.nplPaid] || "") : "",
     sortText
   ].filter(Boolean).join("  |  ") || "No filters (all consumers)";
 }
@@ -3721,7 +3796,8 @@ async function downloadDefaulterPdf() {
         (g.label ? g.label + ": " : "") + "writing " + g.rows.length.toLocaleString("en-IN") + " consumers.");
       await new Promise(resolve => setTimeout(resolve, 50));
       const doc = dlMakePdf(g.rows, g.total, f, g.label);
-      const pdfName = "Defaulter_List_" + (g.label ? dlSafeFileName(g.label) + "_" : "") + dlFileStamp() + ".pdf";
+      const fileBase = { "NEVER PAID": "Never_Paid_List_", "LONG UNPAID": "Long_Unpaid_List_", BOTH: "Never_Paid_Long_Unpaid_List_" }[f.npl] || "Defaulter_List_";
+      const pdfName = fileBase + (g.label ? dlSafeFileName(g.label) + "_" : "") + dlFileStamp() + ".pdf";
       doc.save(pdfName);
       files.push({ blob: doc.output("blob"), name: pdfName });
       if (groups.length > 1) await new Promise(resolve => setTimeout(resolve, 700));   /* one download at a time */
@@ -3781,7 +3857,8 @@ function dlMakePdf(rows, total, f, label) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
 
   doc.setFontSize(14);
-  doc.text("DEFAULTER LIST" + (label ? " – " + label : "") + " – Fieldwork App", 10, 12);
+  const listName = { "NEVER PAID": "NEVER PAID LIST", "LONG UNPAID": "LONG UNPAID LIST", BOTH: "NEVER PAID AND LONG UNPAID LIST" }[f.npl] || "DEFAULTER LIST";
+  doc.text(listName + (label ? " – " + label : "") + " – Fieldwork App", 10, 12);
 
   doc.setFontSize(8);
   const meta =
@@ -3799,7 +3876,7 @@ function dlMakePdf(rows, total, f, label) {
     i + 1, r.account, r.name, r.father, r.address, r.village, r.substation, r.feeder, r.mrSource,
     r.mobile, r.meter, r.loadText, r.supplyType, formatListDate(r.doc),
     Math.round(r.outstanding).toLocaleString("en-IN"),
-    formatListDate(r.lastPay), r.lastPayAmount, ""
+    formatListDate(r.lastPay), r.lastPayAmount, r.npl, ""
   ]);
 
   doc.autoTable({
@@ -3807,7 +3884,7 @@ function dlMakePdf(rows, total, f, label) {
     margin: { left: 10, right: 10 },
     head: [[
       "S.No", "Account", "Name", "Father/Husband", "Address", "Village", "Substation", "Feeder", "MR Src",
-      "Mobile", "Meter", "Load", "Supply", "DOC", "Outstanding (Rs.)", "Last Pay Date", "Last Pay Amt", "Remarks"
+      "Mobile", "Meter", "Load", "Supply", "DOC", "Outstanding (Rs.)", "Last Pay Date", "Last Pay Amt", "List", "Remarks"
     ]],
     body: body,
     theme: "grid",
@@ -3816,9 +3893,9 @@ function dlMakePdf(rows, total, f, label) {
     columnStyles: {
       0: { cellWidth: 7, halign: "right" },
       1: { cellWidth: 17 },
-      2: { cellWidth: 20 },
+      2: { cellWidth: 19 },
       3: { cellWidth: 18 },
-      4: { cellWidth: 30 },
+      4: { cellWidth: 27 },
       5: { cellWidth: 16 },
       6: { cellWidth: 14 },
       7: { cellWidth: 14 },
@@ -3831,7 +3908,8 @@ function dlMakePdf(rows, total, f, label) {
       14: { cellWidth: 15, halign: "right" },
       15: { cellWidth: 14 },
       16: { cellWidth: 12, halign: "right" },
-      17: { cellWidth: 20, minCellHeight: 8 }
+      17: { cellWidth: 13 },
+      18: { cellWidth: 18, minCellHeight: 8 }
     },
     didDrawPage: () => {
       doc.setFontSize(7);
@@ -4403,7 +4481,7 @@ async function downloadDisconnectedUnpaidPdf() {
       formatListDate(r.discDate), en(r.status), en(r.userLabel),
       duMode === "PHONE" ? formatListDate(r.promise) : (r.days === null ? "" : r.days),
       r.inMaster ? Math.round(r.outstanding).toLocaleString("en-IN") : "",
-      formatListDate(r.lastPay), r.lastPayAmount, ""
+      formatListDate(r.lastPay), r.lastPayAmount, r.npl, ""
     ]);
 
     doc.autoTable({
@@ -4415,7 +4493,7 @@ async function downloadDisconnectedUnpaidPdf() {
         duMode === "PHONE" ? "Call Date" : "Disc. Date",
         duMode === "PHONE" ? "Response" : "Disc. Status", "User",
         duMode === "PHONE" ? "Promise" : "Days",
-        "Outstanding (Rs.)", "Last Pay Date", "Last Pay Amt", "Remarks"
+        "Outstanding (Rs.)", "Last Pay Date", "Last Pay Amt", "List", "Remarks"
       ]],
       body: body,
       theme: "grid",
@@ -4428,7 +4506,7 @@ async function downloadDisconnectedUnpaidPdf() {
         1: { cellWidth: 16 },
         2: { cellWidth: 18 },
         3: { cellWidth: 16 },
-        4: { cellWidth: 27 },
+        4: { cellWidth: 24 },
         5: { cellWidth: 14 },
         6: { cellWidth: 12 },
         7: { cellWidth: 12 },
@@ -4443,7 +4521,8 @@ async function downloadDisconnectedUnpaidPdf() {
         16: { cellWidth: 14, halign: "right" },
         17: { cellWidth: 13 },
         18: { cellWidth: 11, halign: "right" },
-        19: { cellWidth: duMode === "PHONE" ? 8 : 15, minCellHeight: 8 }
+        19: { cellWidth: 12 },
+        20: { cellWidth: duMode === "PHONE" ? 8 : 12, minCellHeight: 8 }
       },
       didDrawPage: () => {
         doc.setFontSize(7);
@@ -4745,7 +4824,14 @@ function xlsxToConsumer(row, header) {
     CUR_LAT:n["curlat"] || "",
     CUR_LNG:n["curlng"] || "",
     /* v20.10: MR source of last month's billing (MR_SOURCE_CD = this month's once billed) */
-    PREV_MR_SOURCE:n["prevmrsource"]
+    PREV_MR_SOURCE:n["prevmrsource"],
+    /* v20.11: current assessment (last month / this month) and the office Never Paid / Long Unpaid list */
+    PREV_ASSESSMENT:n["prevassessment"],
+    CUR_ASSESSMENT:n["curassessment"],
+    NPL_TYPE:n["npltype"] || "",
+    NPL_PAY_DATE:n["nplpaydate"] || "",
+    NPL_OUTSTANDING:n["nploutstanding"] || "",
+    NPL_LIST_DATE:n["npllistdate"] || ""
   };
 
 
@@ -8205,6 +8291,10 @@ function resetDisconnectionForm(){
   ["disconnectAccountId","disconnectStatus","disconnectPaymentMode","disconnectCommitDate","disconnectMeterStatus","disconnectReading","disconnectMobile","disconnectHouseCondition","disconnectRemarks"].forEach(id=>{const el=$(id); if(!el)return; if(el.tagName==="SELECT")el.value=""; else el.value="";});
   $("disconnectPaymentModeWrap").classList.add("hidden");
   $("disconnectCommitDateWrap").classList.add("hidden");
+  /* v20.11 */
+  if ($("disconnectPaidAmount")) $("disconnectPaidAmount").value = "";
+  if ($("disconnectMobileRefused")) { $("disconnectMobileRefused").checked = false; $("disconnectMobile").disabled = false; }
+  if ($("disconnectMobileRefusedWrap")) $("disconnectMobileRefusedWrap").classList.add("hidden");
   $("disconnectConsumerCard").classList.add("hidden");
   $("disconnectFormFields").classList.add("hidden");
   $("disconnectSearchStatus").textContent="";
@@ -8420,6 +8510,17 @@ function updateDisconnectionConditionalFields(){
   $("disconnectCommitDateWrap").classList.toggle("hidden",status!=="TIME GIVEN FOR PAYMENT");
   if(status!=="PAID") $("disconnectPaymentMode").value="";
   if(status!=="TIME GIVEN FOR PAYMENT") $("disconnectCommitDate").value="";
+  /* v20.11: amount for Paid; "refused" only for Disconnected (Paid / Time given need the mobile number) */
+  if(status!=="PAID" && $("disconnectPaidAmount")) $("disconnectPaidAmount").value="";
+  if($("disconnectMobileRefusedWrap")){
+    $("disconnectMobileRefusedWrap").classList.toggle("hidden",status!=="DISCONNECTED");
+    if(status!=="DISCONNECTED"){ $("disconnectMobileRefused").checked=false; $("disconnectMobile").disabled=false; }
+  }
+}
+function updateDisconnectMobileRefused(){
+  const refused=$("disconnectMobileRefused").checked;
+  if(refused) $("disconnectMobile").value="";
+  $("disconnectMobile").disabled=refused;
 }
 
 function prepareDisconnectionSave(){
@@ -8439,7 +8540,12 @@ function prepareDisconnectionSave(){
   if(status==="PAID" && !paymentMode) return setStatus("disconnectSaveStatus","Select payment mode.","error");
   if(status==="TIME GIVEN FOR PAYMENT" && !commitDate) return setStatus("disconnectSaveStatus","Select committed payment date.","error");
   if(!meter) return setStatus("disconnectSaveStatus","Select current meter status.","error");
-  if(mobile && !/^\d{10}$/.test(mobile)) return setStatus("disconnectSaveStatus","Enter a valid 10 digit mobile number.","error");
+  /* v20.11: mobile number needed for Paid and Time Given; for Disconnected unless the consumer refused */
+  const mobileRefused=status==="DISCONNECTED" && !!($("disconnectMobileRefused") && $("disconnectMobileRefused").checked);
+  const paidAmountText=$("disconnectPaidAmount") ? $("disconnectPaidAmount").value.replace(/,/g,"").trim() : "";
+  if(status==="PAID" && !(Number(paidAmountText)>0)) return setStatus("disconnectSaveStatus","Enter the amount paid.","error");
+  if(!mobileRefused && !/^\d{10}$/.test(mobile)) return setStatus("disconnectSaveStatus",
+    status==="DISCONNECTED" ? "Enter a valid 10 digit mobile number, or tick Consumer Refused." : "Enter a valid 10 digit mobile number.","error");
   if(!house) return setStatus("disconnectSaveStatus","Select house condition.","error");
   const videoProblem=checkActivityVideo("DISCONNECTION",c,isVideoRequired("DISCONNECTION",status));
 
@@ -8458,6 +8564,9 @@ function prepareDisconnectionSave(){
     disconnection_status:status,payment_mode:paymentMode,committed_payment_date:commitDate,
     outstanding:getConsumerOutstanding(c),
     meter_status:meter,current_reading:reading,mobile_number:mobile,house_condition:house,remarks,
+    paid_amount:status==="PAID" ? paidAmountText : "",
+    mobile_refused:mobileRefused ? "YES" : "NO",
+    master_data_up_to:String((getLocalMasterMeta() || {}).report_date || ""),
     latitude:state.disconnectGps?state.disconnectGps.latitude:"",longitude:state.disconnectGps?state.disconnectGps.longitude:"",gps_accuracy:state.disconnectGps?state.disconnectGps.accuracy:"",
     created_at:new Date().toISOString(),upload_status:"PENDING"
   };
@@ -8465,8 +8574,9 @@ function prepareDisconnectionSave(){
   if(video) attachVideoToRecord(record,video);
   openConfirmation("Confirm Disconnection",[
     ["Account ID",record.account_id],["Consumer",record.consumer_name],["Disconnection Status",record.disconnection_status],
-    ["Payment Mode",record.payment_mode||"—"],["Committed Payment Date",record.committed_payment_date||"—"],["Meter Status",record.meter_status],
-    ["Site Reading",record.current_reading||"—"],["Mobile",record.mobile_number||"—"],["House Condition",record.house_condition],["Remark",record.remarks||"—"],
+    ["Payment Mode",record.payment_mode||"—"],["Amount Paid",record.paid_amount ? "₹"+record.paid_amount : "—"],
+    ["Committed Payment Date",record.committed_payment_date||"—"],["Meter Status",record.meter_status],
+    ["Site Reading",record.current_reading||"—"],["Mobile",mobileRefused ? "Not provided - Consumer Refused" : (record.mobile_number||"—")],["House Condition",record.house_condition],["Remark",record.remarks||"—"],
     ["Video",video?videoSummary(video):"Not required"]
   ],async()=>{
     if(video) downloadActivityVideo(video);
@@ -9808,6 +9918,9 @@ function resetDashboardDisplay() {
   if($("userReport")) $("userReport").innerHTML = '<div class="dashboard-empty-state">Click Load Dashboard to load dashboard data.</div>';
   if($("multiUserReport")) $("multiUserReport").innerHTML = "";
   if($("phoneResponses")) $("phoneResponses").innerHTML = '<div class="status">No response data available.</div>';
+  ["dashSurveyTable","dashDiscTable","dashRecheckTable","dashPhoneTable"].forEach(id => {
+    if($(id)) $(id).innerHTML = '<div class="dashboard-empty-state">Click Load Dashboard to load dashboard data.</div>';
+  });
 }
 
 async function loadDashboardFilters() {
@@ -10135,6 +10248,414 @@ function renderPhoneResponses(items){
   box.innerHTML=items.map(x=>`<div><b>${Number(x.count||0).toLocaleString()}</b><span>${escapeHtml(x.name||"Unknown")}</span></div>`).join("");
 }
 
+/* ---------- v20.11/12: dashboard summaries as tables (status in rows, substations in columns) ---------- */
+let dashLastFilters = null;            /* filters of the loaded dashboard (for the tapped counts) */
+const dashRowsCache = {};              /* rows_type -> rows of the loaded dashboard */
+
+function renderDashboardSummaries(result) {
+  dashLastFilters = {
+    from_date: $("dashFromDate") ? $("dashFromDate").value : "",
+    to_date: $("dashToDate") ? $("dashToDate").value : "",
+    village: "",
+    substation: $("dashSubstationFilter") ? $("dashSubstationFilter").value : ""
+  };
+  Object.keys(dashRowsCache).forEach(k => delete dashRowsCache[k]);
+  const by = result.summary_by_substation || {};
+  const n = v => Math.round(Number(v) || 0).toLocaleString("en-IN");
+  const rs = v => "₹" + Math.round(Number(v) || 0).toLocaleString("en-IN");
+  const mtx = (box, kind, data, rows, note) => {
+    const el = $(box);
+    if (!el) return;
+    const subs = Object.keys(data || {}).sort((a, b) => a.localeCompare(b));
+    if (!subs.length) { el.innerHTML = '<div class="dashboard-empty-state">No entries for the selected filter.</div>'; return; }
+    const link = (v, txt, sub, ri) => (Number(v) || 0) > 0
+      ? '<a href="#" class="dash-link" data-kind="' + kind + '" data-sub="' + escapeHtml(sub) + '" data-row="' + ri + '">' + txt + "</a>"
+      : txt;
+    let h = '<table class="dash-mtx"><thead><tr><th>Status</th>' + subs.map(s => "<th>" + escapeHtml(s) + "</th>").join("") + "<th>Total</th></tr></thead><tbody>";
+    rows.forEach((r, ri) => {
+      const vals = subs.map(s => r.get(data[s]));
+      const total = vals.reduce((a, b) => a + (Number(b) || 0), 0);
+      const f = r.money ? rs : n;
+      const cnt = r.money ? subs.map(s => r.count ? r.count(data[s]) : 0) : vals;
+      const cntTotal = cnt.reduce((a, b) => a + (Number(b) || 0), 0);
+      h += "<tr" + (r.sep ? ' class="sep"' : "") + "><td>" + escapeHtml(r.label) + "</td>" +
+        vals.map((v, i) => "<td>" + link(cnt[i], f(v), subs[i], ri) + "</td>").join("") +
+        "<td>" + link(cntTotal, f(total), "", ri) + "</td></tr>";
+    });
+    el.innerHTML = h + "</tbody></table>" + (note ? '<div class="dash-mtx-note">' + note + "</div>" : "");
+    dashMtxRows[kind] = rows;
+  };
+  const row = (label, key, extra) => Object.assign({ label: label, key: key, get: c => (c && c[key]) || 0 }, extra || {});
+  const videoRows = [
+    row("Videos uploaded", "video_uploaded", { sep: true, match: x => x.video === "video_uploaded" }),
+    row("Videos pending upload", "video_pending", { match: x => x.video === "video_pending" }),
+    row("No video (video needed)", "video_none", { match: x => x.video === "video_none" })
+  ];
+  const videoNote = "Tap a number to see those consumers. Videos pending upload = recorded with the entry, not uploaded yet " +
+    "(entries still waiting on a phone are counted after they are uploaded). No video = only statuses that need a video.";
+  const st = s => x => x.status === s;
+  const all = () => true;
+  mtx("dashSurveyTable", "SURVEY", by.survey, [
+    row("Total surveys", "total", { match: all }), row("Meter OK", "meter_ok", { match: x => x.meter === "OK" }),
+    row("Meter damaged", "meter_damaged", { match: x => x.meter === "DAMAGED" }),
+    row("Meter not installed", "meter_not_installed", { match: x => x.meter === "NOT INSTALLED" }),
+    row("AC installed – YES", "ac_yes", { match: x => x.ac === "YES" }), row("AC installed – NO", "ac_no", { match: x => x.ac === "NO" })]);
+  mtx("dashDiscTable", "DISCONNECTION", by.disconnection, [
+    row("Total visits", "total", { match: all }), row("Disconnected", "disconnected", { match: st("DISCONNECTED") }),
+    row("Time given", "time_given", { match: st("TIME GIVEN FOR PAYMENT") }), row("Paid", "paid", { match: st("PAID") }),
+    row("Total outstanding", "outstanding", { money: true, count: c => (c && c.total) || 0, match: all })].concat(videoRows), videoNote);
+  mtx("dashRecheckTable", "RECHECK", by.recheck, [
+    row("Total rechecks", "total", { match: all }), row("Found connected", "found_connected", { match: st("FOUND CONNECTED") }),
+    row("Still disconnected", "still_disconnected", { match: st("STILL DISCONNECTED") }),
+    row("House locked", "house_locked", { match: st("HOUSE LOCKED") }), row("Payment made", "payment_made", { match: st("PAYMENT MADE") }),
+    row("Total outstanding", "outstanding", { money: true, count: c => (c && c.total) || 0, match: all })].concat(videoRows), videoNote);
+  const responses = {};
+  Object.keys(by.phone_calling || {}).forEach(s => Object.keys(by.phone_calling[s].responses || {}).forEach(r => { responses[r] = true; }));
+  mtx("dashPhoneTable", "PHONE_CALLING", by.phone_calling, [row("Total calls", "total", { match: all }),
+    row("Total outstanding", "outstanding", { money: true, count: c => (c && c.total) || 0, match: all })]
+    .concat(Object.keys(responses).sort().map((r, i) => ({ label: r, sep: i === 0, match: x => x.status === r,
+      get: c => (c && c.responses && c.responses[r]) || 0 }))));
+  dashReportDates();
+  if (!result.summary_by_substation) {
+    ["dashSurveyTable", "dashDiscTable", "dashRecheckTable", "dashPhoneTable"].forEach(id => {
+      if ($(id)) $(id).innerHTML = '<div class="dashboard-empty-state">Update Apps Script (Code.gs) to see these tables.</div>';
+    });
+  }
+}
+const dashMtxRows = {};
+
+/* ---------- v20.12: tap a dashboard number -> the list of those consumers ---------- */
+const DASH_KIND_NAME = { SURVEY: "Survey", DISCONNECTION: "Disconnection", RECHECK: "Recheck", PHONE_CALLING: "Phone calling" };
+let dashListShown = null;
+
+function dashListOverlay() {
+  let box = $("dashListOverlay");
+  if (box) return box;
+  box = document.createElement("div");
+  box.id = "dashListOverlay";
+  box.className = "dash-list-overlay hidden";
+  box.innerHTML =
+    '<div class="dash-list-card"><div class="dash-list-head"><b id="dashListTitle"></b>' +
+    '<button id="dashListCloseBtn" type="button" class="secondary">CLOSE</button></div>' +
+    '<div id="dashListInfo" class="dash-mtx-note"></div>' +
+    '<div class="dash-list-btns"><button id="dashListPdfBtn" type="button" class="secondary">DOWNLOAD PDF</button>' +
+    '<button id="dashListXlsBtn" type="button" class="secondary">DOWNLOAD EXCEL</button></div>' +
+    '<div id="dashListStatus" class="status"></div><div id="dashListBody"></div></div>';
+  document.body.appendChild(box);
+  $("dashListCloseBtn").addEventListener("click", () => { box.classList.add("hidden"); document.body.style.overflow = ""; });
+  box.addEventListener("click", e => { if (e.target === box) $("dashListCloseBtn").click(); });
+  $("dashListPdfBtn").addEventListener("click", dashListPdf);
+  $("dashListXlsBtn").addEventListener("click", dashListXlsx);
+  return box;
+}
+
+async function dashRows(kind) {
+  if (dashRowsCache[kind]) return dashRowsCache[kind];
+  const res = await adminRequest("dashboard", Object.assign({}, dashLastFilters || {}, { rows_type: kind }));
+  if (!res || !res.success) throw new Error((res && res.message) || "Could not load the list.");
+  if (!Array.isArray(res.rows)) throw new Error("Update Apps Script (Code.gs) to open these lists.");
+  dashRowsCache[kind] = res.rows;
+  return res.rows;
+}
+
+async function openDashList(kind, sub, rowIndex) {
+  const r = (dashMtxRows[kind] || [])[rowIndex];
+  if (!r) return;
+  const box = dashListOverlay();
+  box.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  const title = DASH_KIND_NAME[kind] + " · " + (sub || "All substations") + " · " + r.label;
+  $("dashListTitle").textContent = title;
+  $("dashListInfo").textContent = "Loading…";
+  $("dashListBody").innerHTML = "";
+  setStatus("dashListStatus", "");
+  try {
+    const rows = (await dashRows(kind)).filter(x => (!sub || x.sub === sub) && r.match(x));
+    dashListShown = { kind: kind, title: title, rows: rows };
+    const f = dashLastFilters || {};
+    $("dashListInfo").textContent = rows.length.toLocaleString("en-IN") + " entries" +
+      (f.from_date || f.to_date ? " · " + (f.from_date ? formatListDate(f.from_date) : "start") + " to " + (f.to_date ? formatListDate(f.to_date) : "today") : "") +
+      (rows.length > 200 ? " (first 200 shown; the PDF / Excel has all)" : "");
+    $("dashListBody").innerHTML = rows.slice(0, 200).map(x =>
+      '<div class="dash-li"><b>' + escapeHtml(x.account_id) + "</b> " + escapeHtml(x.consumer_name) +
+      "<div>" + escapeHtml([x.date, x.sub, x.user_name].filter(Boolean).join(" · ")) + "</div>" +
+      "<div>" + escapeHtml([x.status || x.meter, x.committed_date ? "Committed " + x.committed_date : "", x.mobile].filter(Boolean).join(" · ")) +
+      (x.outstanding !== undefined && x.outstanding !== "" ? " · ₹" + Math.round(Number(String(x.outstanding).replace(/,/g, "")) || 0).toLocaleString("en-IN") : "") +
+      "</div></div>").join("");
+  } catch (e) {
+    $("dashListInfo").textContent = "";
+    setStatus("dashListStatus", e.message || "Could not load the list.", "error");
+  }
+}
+
+function dashListColumns(kind) {
+  const base = [["Date", "date"], ["Substation", "sub"], ["User", "user_name"], ["Account ID", "account_id"], ["Consumer Name", "consumer_name"],
+    ["Father/Husband", "father_name"], ["Address", "address"], ["Mobile", "mobile"]];
+  if (kind === "SURVEY") return base.concat([["Village", "village"], ["Meter", "meter"], ["AC", "ac"], ["Outstanding", "outstanding"]]);
+  if (kind === "PHONE_CALLING") return base.concat([["Response", "status"], ["Committed Date", "committed_date"], ["Outstanding", "outstanding"], ["Remarks", "remarks"]]);
+  return base.concat([["Status", "status"], ["Payment Mode", "payment_mode"], ["Committed / Payment Date", "committed_date"],
+    ["Paid Amount (by user)", "paid_amount"], ["Outstanding", "outstanding"], ["Video", "video"]]);
+}
+const dashVideoText = v => ({ video_uploaded: "Uploaded", video_pending: "Pending", video_none: "No video" }[v] || "");
+function dashListCell(x, key) {
+  if (key === "video") return dashVideoText(x.video);
+  if (key === "outstanding") return Math.round(Number(String(x.outstanding).replace(/,/g, "")) || 0);
+  return x[key] == null ? "" : String(x[key]);
+}
+
+function dashListPdf() {
+  const s = dashListShown;
+  if (!s || !s.rows.length) return;
+  if (!window.jspdf || !window.jspdf.jsPDF || !window.jspdf.jsPDF.API.autoTable) {
+    return setStatus("dashListStatus", "PDF library is not loaded. Please reload the app.", "error");
+  }
+  const cols = dashListColumns(s.kind);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
+  doc.setFontSize(13);
+  doc.text(s.title, 10, 12);
+  doc.setFontSize(8);
+  doc.text($("dashListInfo").textContent.replace(/ \(first 200.*\)$/, "") + "    On: " + shareDateText(new Date().toISOString()), 10, 18);
+  doc.autoTable({
+    startY: 22, margin: { left: 10, right: 10 },
+    head: [["S.No"].concat(cols.map(c => c[0]))],
+    body: s.rows.map((x, i) => [i + 1].concat(cols.map(c => c[1] === "outstanding" ? dashListCell(x, c[1]).toLocaleString("en-IN") : dashListCell(x, c[1])))),
+    theme: "grid",
+    styles: { fontSize: 6.8, cellPadding: 1, overflow: "linebreak", valign: "middle", lineColor: [120, 120, 120], lineWidth: 0.1, textColor: [0, 0, 0] },
+    headStyles: { fillColor: [21, 101, 192], textColor: 255, fontSize: 6.8 },
+    columnStyles: { 0: { cellWidth: 8, halign: "right" } },
+    didDrawPage: () => {
+      doc.setFontSize(7);
+      doc.text("Page " + doc.internal.getNumberOfPages(), doc.internal.pageSize.getWidth() - 25, doc.internal.pageSize.getHeight() - 5);
+    }
+  });
+  const name = s.title.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "") + "_" + dlFileStamp() + ".pdf";
+  doc.save(name);
+  setStatus("dashListStatus", "Downloaded: " + name, "ok");
+}
+
+function dashListXlsx() {
+  const s = dashListShown;
+  if (!s || !s.rows.length) return;
+  if (!window.XLSX) return setStatus("dashListStatus", "Excel library is not loaded. Please reload the app.", "error");
+  const cols = dashListColumns(s.kind);
+  const aoa = [[s.title], [$("dashListInfo").textContent.replace(/ \(first 200.*\)$/, "")], [],
+    ["S.No"].concat(cols.map(c => c[0]))].concat(s.rows.map((x, i) => [i + 1].concat(cols.map(c => dashListCell(x, c[1])))));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), "List");
+  const name = s.title.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "") + "_" + dlFileStamp() + ".xlsx";
+  XLSX.writeFile(wb, name);
+  setStatus("dashListStatus", "Downloaded: " + name, "ok");
+}
+
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest("a.dash-link");
+  if (!a) return;
+  e.preventDefault();
+  openDashList(a.dataset.kind, a.dataset.sub, Number(a.dataset.row));
+});
+
+/* ---------- v20.11/12: Disconnection report PDF, and the two follow-up lists ---------- */
+function dashReportDates() {
+  const today = new Date();
+  const p = x => String(x).padStart(2, "0");
+  const iso = today.getFullYear() + "-" + p(today.getMonth() + 1) + "-" + p(today.getDate());
+  if ($("dashRepFrom") && !$("dashRepFrom").value) $("dashRepFrom").value = ($("dashFromDate") && $("dashFromDate").value) || iso;
+  if ($("dashRepTo") && !$("dashRepTo").value) $("dashRepTo").value = ($("dashToDate") && $("dashToDate").value) || iso;
+}
+
+let dashReportFile = null;
+async function shareDisconnectionReport() {
+  if (!dashReportFile) return;
+  if (!navigator.share || !navigator.canShare || !navigator.canShare({ files: [dashReportFile] })) {
+    return setStatus("dashRepStatus", "This device cannot share from here. Share " + dashReportFile.name + " from the Download folder.", "error");
+  }
+  try { await navigator.share({ files: [dashReportFile], title: dashReportFile.name.replace(/_/g, " ").replace(/\.pdf$/, "") }); }
+  catch (e) { if (!e || e.name !== "AbortError") setStatus("dashRepStatus", "Could not open sharing. Share it from the Download folder.", "error"); }
+}
+
+/* mode: REPORT (every visit) / TG_NOT_PAID (time given, no payment since the visit) /
+   PAID_NOT_PAID (paid at visit, no payment since the visit) */
+async function downloadDisconnectionReportPdf(mode) {
+  mode = typeof mode === "string" ? mode : "REPORT";
+  dashReportDates();
+  const from = $("dashRepFrom").value, to = $("dashRepTo").value;
+  if (!from || !to || from > to) return setStatus("dashRepStatus", "Choose the report dates (from – to).", "error");
+  if (!window.jspdf || !window.jspdf.jsPDF || !window.jspdf.jsPDF.API.autoTable) {
+    return setStatus("dashRepStatus", "PDF library is not loaded. Please reload the app.", "error");
+  }
+  if (!navigator.onLine) return setStatus("dashRepStatus", "No internet. The report needs internet.", "error");
+  if (mode !== "REPORT" && !state.masterReady) return setStatus("dashRepStatus", "Master Data is still loading. Please wait.", "error");
+  setStatus("dashRepStatus", "");
+  showGlobalLoading("Preparing the report…", "Reading the disconnection entries.");
+  try {
+    const res = await adminRequest("disconnection_report", {
+      from_date: from, to_date: to, substation: $("dashSubstationFilter") ? $("dashSubstationFilter").value : ""
+    });
+    if (!res || !res.success) throw new Error((res && res.message) || "Update Apps Script (Code.gs) for the report.");
+    const rows = res.rows || [];
+
+    const amount = v => { const x = Number(String(v == null ? "" : v).replace(/,/g, "").trim()); return String(v == null ? "" : v).trim() !== "" && isFinite(x) ? x : null; };
+    const iso = v => parseMasterDate(v) || "";
+    const dmy = v => formatListDate(v);
+    let marked = 0;
+    const list = [];
+    for (const r of rows) {
+      let c = null;
+      try { c = state.masterReady ? await getMasterByAccountInput(r.account_id) : null; } catch (e) { c = null; }
+      const pay = c ? iso(c.LAST_PAY_DATE) : "";
+      const paidSince = !!pay && pay >= r.date;
+      if (mode === "TG_NOT_PAID" && !(r.status === "TIME GIVEN FOR PAYMENT" && !paidSince)) continue;
+      if (mode === "PAID_NOT_PAID" && !(r.status === "PAID" && !paidSince)) continue;
+      const sub = String((c && c.SUBSTATION) || r.user_substation || "").replace(/_\d+$/, "");
+      /* final outstanding: on the visit day (daily data, Apps Script) - else as saved at the visit */
+      let out = amount(r.visit_day_outstanding), mark = "";
+      if (out === null) {
+        out = amount(r.outstanding);
+        const upTo = iso(r.phone_data_up_to);
+        if (upTo && r.date) {
+          const d = new Date(r.date + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 2);
+          if (upTo < d.toISOString().slice(0, 10)) { mark = "*"; marked++; }
+        }
+      }
+      const npl = c ? nplTypeOf(c) : "";
+      const ll = v => { const x = Number(v); return v !== "" && isFinite(x) && x ? x.toFixed(4) : ""; };
+      const committed = iso(r.committed_date);
+      const statusText = r.status === "TIME GIVEN FOR PAYMENT" ? "TIME GIVEN" + (committed ? " (" + dmy(committed) + ")" : "") : r.status;
+      list.push({
+        date: r.date, sub: sub || "—", acct: r.account_id, name: (c && c.NAME) || r.consumer_name,
+        father: (c && c.FATHER_NAME) || r.father_name, address: (c && c.ADDRESS) || r.address,
+        supply: r.supply_type || (c && c.SUPPLY_TYPE) || "", load: r.load || (c && c.LOAD) || "",
+        mobile: String(r.mobile_refused).toUpperCase() === "YES" ? "Refused" : r.mobile,
+        lat: ll(r.latitude), lng: ll(r.longitude), out: out, mark: mark,
+        list: npl === "NEVER PAID" ? "Never paid" : npl === "LONG UNPAID" ? "Long unpaid" : "",
+        status: r.status, statusText: statusText, committed: committed, mode: r.payment_mode,
+        paid: r.status === "PAID" ? amount(r.paid_amount) : null,
+        lastPay: pay, lastPayAmt: c ? c.LAST_PAY_AMOUNT : "", now: c ? amount(c.TOTAL_OUTSTANDING) : null
+      });
+    }
+    if (!list.length) {
+      return setStatus("dashRepStatus", mode === "REPORT" ? "No disconnection entries in these dates." : "No consumers for this list in these dates.", "error");
+    }
+    list.sort((a, b) => a.date.localeCompare(b.date) || a.sub.localeCompare(b.sub) || String(a.acct).localeCompare(String(b.acct)));
+
+    const TITLE = { REPORT: "DISCONNECTION REPORT", TG_NOT_PAID: "TIME GIVEN BUT NOT YET PAID", PAID_NOT_PAID: "PAID AT VISIT BUT NOT ACTUALLY PAID" }[mode];
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
+    const money2 = v => v === null || v === undefined ? "" : Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const money0 = v => "Rs. " + Math.round(Number(v) || 0).toLocaleString("en-IN");
+
+    doc.setFontSize(14);
+    doc.text(TITLE, 10, 12);
+    doc.setFontSize(8.5);
+    const subFilter = $("dashSubstationFilter") && $("dashSubstationFilter").value;
+    doc.text("Visits: " + dmy(from) + " to " + dmy(to) + (subFilter ? "    Substation: " + subFilter : "") +
+      (mode === "REPORT" ? "" : "    Payments up to: " + ((getLocalMasterMeta() || {}).report_date || "data on this phone")) +
+      "    On: " + shareDateText(new Date().toISOString()), 10, 18);
+
+    /* summary: status in rows (total visits first), substations in columns */
+    const subs = Array.from(new Set(list.map(x => x.sub))).sort((a, b) => a.localeCompare(b));
+    const count = (s, pred) => list.filter(x => (s === null || x.sub === s) && pred(x)).length;
+    const sum = (s, pred, f) => list.filter(x => (s === null || x.sub === s) && pred(x)).reduce((a, x) => a + (Number(f(x)) || 0), 0);
+    const all = () => true;
+    const sRows = [];
+    const addCount = (label, pred) => sRows.push([label].concat(subs.map(s => count(s, pred)), [count(null, pred)]));
+    const addSum = (label, f) => sRows.push([label].concat(subs.map(s => money0(sum(s, all, f))), [money0(sum(null, all, f))]));
+    if (mode === "REPORT") {
+      addCount("Total visits", all);
+      addCount("Disconnected", x => x.status === "DISCONNECTED");
+      addCount("Time given", x => x.status === "TIME GIVEN FOR PAYMENT");
+      addCount("Paid", x => x.status === "PAID");
+      addSum("Final outstanding", x => x.out);
+      addSum("Paid amount (recorded by user)", x => x.paid);
+      addCount("Never paid / Long unpaid", x => !!x.list);
+    } else {
+      addCount("Consumers", all);
+      addSum("Final outstanding (visit day)", x => x.out);
+      addSum("Outstanding now", x => x.now);
+      if (mode === "PAID_NOT_PAID") addSum("Paid amount (recorded by user)", x => x.paid);
+      addCount("Never paid / Long unpaid", x => !!x.list);
+    }
+    doc.autoTable({
+      startY: 22, margin: { left: 10, right: 10 },
+      head: [["Status"].concat(subs, ["Total"])], body: sRows, theme: "grid",
+      tableWidth: Math.min(277, 50 + 25 * (subs.length + 1)),
+      styles: { fontSize: 8, cellPadding: 1.5, lineColor: [120, 120, 120], lineWidth: 0.1, textColor: [0, 0, 0], halign: "right" },
+      headStyles: { fillColor: [21, 101, 192], textColor: 255, halign: "center" },
+      columnStyles: { 0: { halign: "left", fontStyle: "bold", cellWidth: 50 } },
+      didParseCell: d => { if (d.section === "body" && d.column.index === subs.length + 1) d.cell.styles.fontStyle = "bold"; }
+    });
+
+    let head, body, colStyles;
+    if (mode === "REPORT") {
+      head = ["S.No", "Date", "Substation", "Account ID", "Consumer Name", "Father/Husband", "Address", "Supply Type", "Load",
+        "Mobile No", "Latitude", "Longitude", "Final Out (Rs.)", "List Category", "Disconnection Status", "Paid Amount"];
+      body = list.map((x, i) => [i + 1, dmy(x.date), x.sub, x.acct, x.name, x.father, x.address, x.supply, x.load, x.mobile,
+        x.lat, x.lng, money2(x.out) + x.mark, x.list, x.statusText, x.paid === null ? "" : money2(x.paid)]);
+      colStyles = {
+        0: { cellWidth: 8, halign: "right" }, 1: { cellWidth: 15 }, 2: { cellWidth: 17 }, 3: { cellWidth: 17 },
+        4: { cellWidth: 22 }, 5: { cellWidth: 20 }, 6: { cellWidth: 28 }, 7: { cellWidth: 11, halign: "center" },
+        8: { cellWidth: 8, halign: "center" }, 9: { cellWidth: 17 }, 10: { cellWidth: 13 }, 11: { cellWidth: 13 },
+        12: { cellWidth: 18, halign: "right" }, 13: { cellWidth: 16, halign: "center" }, 14: { cellWidth: 25, halign: "center" },
+        15: { cellWidth: 16, halign: "right" }
+      };
+    } else {
+      head = ["S.No", "Visit Date", "Substation", "Account ID", "Consumer Name", "Father/Husband", "Address", "Mobile No",
+        mode === "TG_NOT_PAID" ? "Committed Date" : "Payment Mode", mode === "TG_NOT_PAID" ? "Final Out (Rs.)" : "Paid Amount (by user)",
+        "Last Pay Date", "Last Pay Amt", "Outstanding Now", "List Category"];
+      body = list.map((x, i) => [i + 1, dmy(x.date), x.sub, x.acct, x.name, x.father, x.address, x.mobile,
+        mode === "TG_NOT_PAID" ? (x.committed ? dmy(x.committed) : "") : x.mode,
+        mode === "TG_NOT_PAID" ? money2(x.out) + x.mark : (x.paid === null ? "" : money2(x.paid)),
+        x.lastPay ? dmy(x.lastPay) : "", x.lastPayAmt || "", x.now === null ? "" : money2(x.now), x.list]);
+      colStyles = {
+        0: { cellWidth: 8, halign: "right" }, 1: { cellWidth: 16 }, 2: { cellWidth: 18 }, 3: { cellWidth: 18 },
+        4: { cellWidth: 26 }, 5: { cellWidth: 24 }, 6: { cellWidth: 34 }, 7: { cellWidth: 18 }, 8: { cellWidth: 20 },
+        9: { cellWidth: 19, halign: "right" }, 10: { cellWidth: 17 }, 11: { cellWidth: 15, halign: "right" },
+        12: { cellWidth: 20, halign: "right" }, 13: { cellWidth: 17, halign: "center" }
+      };
+    }
+    doc.autoTable({
+      startY: doc.lastAutoTable.finalY + 6, margin: { left: 10, right: 10 },
+      head: [head], body: body, theme: "grid",
+      styles: { fontSize: 6.8, cellPadding: 1, overflow: "linebreak", valign: "middle", lineColor: [120, 120, 120], lineWidth: 0.1, textColor: [0, 0, 0] },
+      headStyles: { fillColor: [21, 101, 192], textColor: 255, fontSize: 6.8, halign: "center" },
+      columnStyles: colStyles,
+      didDrawPage: () => {
+        doc.setFontSize(7);
+        doc.text("Page " + doc.internal.getNumberOfPages(), doc.internal.pageSize.getWidth() - 25, doc.internal.pageSize.getHeight() - 5);
+      }
+    });
+    let y = doc.lastAutoTable.finalY + 5;
+    if (y > doc.internal.pageSize.getHeight() - 14) { doc.addPage(); y = 14; }
+    doc.setFontSize(7);
+    doc.text("Final Out = outstanding on the visit day (daily billing and payment data)" +
+      (marked ? "; * = outstanding as saved at the visit, when the phone's data was more than 2 days old." : ".") +
+      (mode === "REPORT" ? "" : "  Not paid = no payment dated on or after the visit day."), 10, y);
+
+    const fileTitle = { REPORT: "Disconnection_Report_", TG_NOT_PAID: "Time_Given_Not_Yet_Paid_", PAID_NOT_PAID: "Paid_At_Visit_Not_Actually_Paid_" }[mode];
+    const name = fileTitle + from + "_to_" + to + ".pdf";
+    doc.save(name);
+    dashReportFile = new File([doc.output("blob")], name, { type: "application/pdf" });
+    if ($("dashRepShareBtn")) $("dashRepShareBtn").classList.remove("hidden");
+    setStatus("dashRepStatus", "Downloaded: " + name.replace(/_/g, " ") + " (" + list.length.toLocaleString("en-IN") + ").", "ok");
+  } catch (e) {
+    console.error(e);
+    setStatus("dashRepStatus", "Could not make the PDF: " + (e.message || e), "error");
+  } finally {
+    hideGlobalLoading();
+  }
+}
+if ($("dashRepPdfBtn")) {
+  $("dashRepPdfBtn").addEventListener("click", () => downloadDisconnectionReportPdf("REPORT"));
+  if ($("dashRepShareBtn")) $("dashRepShareBtn").addEventListener("click", shareDisconnectionReport);
+  if ($("dashTgNotPaidBtn")) $("dashTgNotPaidBtn").addEventListener("click", () => downloadDisconnectionReportPdf("TG_NOT_PAID"));
+  if ($("dashPaidNotPaidBtn")) $("dashPaidNotPaidBtn").addEventListener("click", () => downloadDisconnectionReportPdf("PAID_NOT_PAID"));
+  ["dashRepFrom", "dashRepTo"].forEach(id => $(id).addEventListener("focus", dashReportDates, { once: true }));
+}
+
+
+
+
 async function loadDashboard() {
   dashboardHasLoaded = true;
   $("sumSurveyTotal").textContent="...";
@@ -10205,6 +10726,7 @@ async function loadDashboard() {
     $("phoneTotal").textContent=Number(ph.total||0).toLocaleString();
     $("dashboardPhoneOutstanding").textContent=formatDashboardMoney(ph.outstanding);
     renderPhoneResponses(ph.responses||[]);
+    renderDashboardSummaries(result);                             /* v20.11 */
 
     renderSubstationReport(result.substation_wise||[]);
     renderUserReport(result.user_wise||[]);
@@ -11016,6 +11538,15 @@ if ($("openDefaulterListBtn")) {
   $("dlPreviewBtn").addEventListener("click", previewDefaulterList);
   $("dlPdfBtn").addEventListener("click", downloadDefaulterPdf);
   $("dlPayMode").addEventListener("change", dlUpdatePayBoxes);
+  /* v20.11: office lists */
+  if ($("dlNpl")) $("dlNpl").addEventListener("change", () => dlSwitchNplMode($("dlNpl").value));   /* v20.12 */
+  const openOfficeList = async type => {
+    await openDefaulterList(type);
+    setStatus("dlStatusMsg", "");
+  };
+  if ($("openNeverPaidListBtn")) $("openNeverPaidListBtn").addEventListener("click", () => openOfficeList("NEVER PAID"));
+  if ($("openLongUnpaidListBtn")) $("openLongUnpaidListBtn").addEventListener("click", () => openOfficeList("LONG UNPAID"));
+
 
   $("dlDocMode").addEventListener("change", dlUpdateDocBox);
   $("dlLoadMode").addEventListener("change", dlUpdateLoadBox);
@@ -11199,6 +11730,8 @@ $("activityBackBtn").addEventListener("click", goHome);
 $("disconnectSearchBtn").addEventListener("click", searchDisconnectionConsumer);
 $("disconnectAccountId").addEventListener("keydown", e => { if(e.key === "Enter") searchDisconnectionConsumer(); });
 $("disconnectStatus").addEventListener("change", updateDisconnectionConditionalFields);
+if ($("disconnectMobileRefused")) $("disconnectMobileRefused").addEventListener("change", updateDisconnectMobileRefused);
+if ($("disconnectPaidAmount") && typeof dlNumbersOnly === "function") dlNumbersOnly($("disconnectPaidAmount"));
 $("disconnectSubmitBtn").addEventListener("click", prepareDisconnectionSave);
 $("disconnectBackBtn").addEventListener("click", goHome);
 $("activitySearchBtn").addEventListener("click", searchAccountActivity);
@@ -11364,11 +11897,60 @@ async function shareListPdf(prefix) {
 const DL_SAVED_INPUTS = [
   "dlLoadMode", "dlLoadMin", "dlLoadMax", "dlOutMin", "dlPayMode", "dlLongDate",
   "dlSinceDate", "dlDocMode", "dlDocFrom", "dlDocTo",
-  "dlSort1", "dlDir1", "dlSort2", "dlDir2", "dlSort3", "dlDir3", "dlSplit"
+  "dlSort1", "dlDir1", "dlSort2", "dlDir2", "dlSort3", "dlDir3", "dlSplit", "dlNpl", "dlNplPaid"
 ];
 
+/* v20.12: one memory per list: Defaulter (ALL), NEVER PAID, LONG UNPAID, BOTH */
+let dlNplMode = "ALL";
 function dlFiltersKey() {
-  return "fieldworkDefaulterFilters:" + String(state.userId || "").trim().toLowerCase();
+  return "fieldworkDefaulterFilters:" + String(state.userId || "").trim().toLowerCase() +
+    (dlNplMode && dlNplMode !== "ALL" ? ":" + dlNplMode : "");
+}
+
+/* the filters as they are when the page opens (used for a list opened the first time) */
+function dlResetInputsToDefault() {
+  DL_SAVED_INPUTS.forEach(id => {
+    const el = $(id);
+    if (!el || id === "dlNpl") return;
+    if (el.tagName === "SELECT") {
+      const o = Array.from(el.options).find(x => x.defaultSelected) || el.options[0];
+      if (o) el.value = o.value;
+    } else {
+      el.value = el.defaultValue;
+    }
+  });
+  for (let i = 1; i <= 3; i++) {
+    if ($("dlSort" + i) && $("dlSort" + i).options.length) {
+      $("dlSort" + i).value = DL_DEFAULT_SORT[i - 1][0];
+      $("dlDir" + i).value = DL_DEFAULT_SORT[i - 1][1];
+    }
+  }
+}
+
+/* switch to another list: keep this list's filters, bring back (or start) the other list's */
+function dlSwitchNplMode(mode) {
+  if (!$("dlNpl")) return;
+  if (mode !== dlNplMode) {
+    $("dlNpl").value = dlNplMode;
+    dlSaveFilters();
+    dlNplMode = mode;
+  }
+  $("dlNpl").value = mode;
+  dlRestoreFilters();
+  dlRefreshCascade(null);
+  dlFixEmptyRestoredLists();
+  dlUpdateNplTitle();
+}
+
+function dlUpdateNplTitle() {
+  const h = document.querySelector("#defaulterListCard h2");
+  if (!h) return;
+  h.textContent = {
+    "NEVER PAID": "Never Paid List(कभी भुगतान नहीं सूची)",
+    "LONG UNPAID": "Long Unpaid List(लंबे समय से बकाया सूची)",
+    BOTH: "Never Paid + Long Unpaid List(कभी भुगतान नहीं + लंबे समय से बकाया सूची)"
+  }[dlNplMode] || "Defaulter List(बकायेदार सूची)";
+  try { if (typeof applyLanguage === "function") applyLanguage(); } catch (e) {}
 }
 
 function dlSaveFilters() {
@@ -11396,6 +11978,13 @@ function dlReadSavedFilters() {
 /* Called while the filter lists are (re)built from the master. */
 function dlRestoreFilters() {
   const saved = dlReadSavedFilters();
+  if (!saved) {                                                     /* v20.12: first time for this list */
+    dlResetInputsToDefault();
+    if (dlNplMode !== "ALL") {
+      $("dlPayMode").value = "ALL";            /* the office list decides who is never paid / long unpaid */
+      $("dlOutMin").value = "";
+    }
+  }
   DL_LISTS.forEach(id => {
     const values = saved && saved.lists ? saved.lists[id] : null;
     if (Array.isArray(values)) dlSel[id] = new Set(values);
@@ -11405,7 +11994,7 @@ function dlRestoreFilters() {
     DL_SAVED_INPUTS.forEach(id => {
       const el = $(id);
       const v = saved.inputs[id];
-      if (!el || v === undefined || v === null) return;
+      if (!el || v === undefined || v === null || id === "dlNpl") return;
       if (el.tagName === "SELECT" && !Array.from(el.options).some(o => o.value === v)) return;
       el.value = v;
     });

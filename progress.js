@@ -46,7 +46,7 @@
   const groupOk = g => sel.group === "ALL" || (sel.group === "GN" ? g !== "P" : g === sel.group);
   const LEVELS = ["sdo", "sub", "feeder", "village"];
   const LEVEL_LABEL = { sdo: "SDO", sub: "Substation", feeder: "Feeder", village: "Village" };
-  const UNPAID_BANDS = ["3 to 4", "5 to 9", "10 to 49", "50 and above"];
+  const UNPAID_BANDS = ["1", "2", "3 to 4", "5 to 9", "10 to 49", "50 and above"];   /* v20.11: + 1 and 2 */
   const UNBILLED_BANDS = ["1", "2", "3 to 4", "5 to 9", "10 to 49", "50 and above"];
   const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
   const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August",
@@ -72,7 +72,10 @@
     const n = Number(String(v == null ? "" : v).replace(/,/g, "").trim());
     return isFinite(n) ? n : 0;
   }
-  const unpaidBand = l => l >= 50 ? 3 : l >= 10 ? 2 : l >= 5 ? 1 : l >= 3 ? 0 : -1;   /* kW/kVA/BHP alike */
+  const unpaidBand = l => l >= 50 ? 5 : l >= 10 ? 4 : l >= 5 ? 3 : l > 2 ? 2 : l > 1 ? 1 : 0;   /* kW/kVA/BHP alike */
+  /* v20.11: office Never Paid / Long Unpaid list of a consumer ("" when not on a list) */
+  const nplType = c => { const t = String(c.NPL_TYPE || "").trim().toUpperCase(); return t === "NEVER PAID" || t === "LONG UNPAID" ? t : ""; };
+  const hasField = v => v !== undefined && v !== null && String(v).trim() !== "";
   const unbilledBand = l => l >= 50 ? 5 : l >= 10 ? 4 : l >= 5 ? 3 : l > 2 ? 2 : l > 1 ? 1 : 0;
 
   /* ---------- dates (yyyy-mm-dd strings compare correctly) ---------- */
@@ -107,7 +110,7 @@
     const day = Math.min(Number(report.slice(8, 10)), daysIn(masterMonth));
     return {
       key: [state.activeMasterStore, state.masterCount, meta.base_id || "", meta.updates_seq || 0,
-        meta.master_file_id || "", meta.report_date || "", "v20.10"].join("|"),
+        meta.master_file_id || "", meta.report_date || "", "v20.12"].join("|"),
       report: report,
       billingMonth: billingMonth,
       monthStart: billingMonth + "-01",
@@ -124,12 +127,15 @@
     dayAmt: new Array(31).fill(0), dayCnt: new Array(31).fill(0),     /* this month, by day */
     lmDayAmt: new Array(31).fill(0), lmDayCnt: new Array(31).fill(0), /* master month, by day */
     paid: 0, lmPaid: 0, lmPaidDay: 0,
-    unpaid: 0, unpaidAmt: 0, band: [0, 0, 0, 0], bandAmt: [0, 0, 0, 0],
+    unpaid: 0, unpaidAmt: 0, band: [0, 0, 0, 0, 0, 0], bandAmt: [0, 0, 0, 0, 0, 0],
+    payBand: [0, 0, 0, 0, 0, 0], payBandAmt: [0, 0, 0, 0, 0, 0],     /* v20.11: paid this month by load */
+    def: 0, defAmt: 0, defBand: [0, 0, 0, 0, 0, 0], defBandAmt: [0, 0, 0, 0, 0, 0],   /* v20.12: defaulters */
+    prevAss: 0, curAss: 0, assKnown: 0,                               /* v20.11: current assessment */
     never: 0, neverAmt: 0,
     ub: [0, 0, 0, 0, 0, 0], cats: {}, remark: {}, basis: {},
     mrNow: {}, mrPrev: {}, prevKnown: 0       /* v20.10: billed this month by MR source / last month's MR source */
   });
-  const newCat = () => ({ billable: 0, paid: 0, lmPaid: 0, lmPaidDay: 0, unbilled: 0, unpaid: 0, unpaidAmt: 0 });
+  const newCat = () => ({ billable: 0, paid: 0, rev: 0, lmPaid: 0, lmPaidDay: 0, unbilled: 0, unpaid: 0, unpaidAmt: 0, def: 0, defAmt: 0 });
 
   let data = null;          /* { key, ctx, cells: Map, units: [[sdo,sub,feeder,village]] } */
   let busy = false;
@@ -173,17 +179,38 @@
     f.unpaid = f.out > 0 && !(f.pay && f.pay >= ctx.monthStart);
     f.band = f.unpaid ? unpaidBand(load) : -1;
     f.never = !f.pay || f.pay < "2010-01-01";
+    /* v20.11 */
+    f.acct = String(c.ACCT_ID || "");
+    f.loadBand = unbilledBand(load);
+    f.assKnown = hasField(c.PREV_ASSESSMENT) || hasField(c.CUR_ASSESSMENT);
+    f.prevAss = num(c.PREV_ASSESSMENT);
+    f.curAss = f.billed ? num(c.CUR_ASSESSMENT) : 0;
+    f.npl = nplType(c);
+    if (f.npl) {
+      const listPay = parseMasterDate(c.NPL_PAY_DATE);
+      /* paid after the list: never paid = any payment; long unpaid = a payment after the list's last payment */
+      f.nplPaid = !!f.pay && f.pay >= "1950-01-01" && (f.npl === "NEVER PAID" || !listPay || f.pay > listPay);
+      f.nplAmt = f.nplPaid ? (f.payInMonth ? (f.thisMonth || f.payAmt) : f.payAmt) : 0;
+      f.nplOut = num(c.NPL_OUTSTANDING);
+      f.nplDate = parseMasterDate(c.NPL_LIST_DATE) || "";
+    }
     return f;
   }
 
   async function compute(ctx) {
     const cells = new Map();
     const units = new Map();
+    const npl = [];                                                /* v20.11: office list consumers */
 
     await forEachMasterBatch(batch => {
       for (const c of batch) {
-        if (!isBillable(c.CONNECTION_STATUS)) continue;          /* billable consumers only */
+        const billable = isBillable(c.CONNECTION_STATUS);
+        const onList = nplType(c);
+        if (!billable && !onList) continue;                       /* billable consumers only */
         const f = facts(c, ctx);
+        if (onList) npl.push({ acct: f.acct, type: f.npl, u: f.u, grp: f.grp, meter: f.meter,
+          paid: f.nplPaid, amt: f.nplAmt, listOut: f.nplOut, out: f.out, date: f.nplDate });
+        if (!billable) continue;
         const uKey = f.u.join("\u0001");
         if (!units.has(uKey)) units.set(uKey, f.u);
         const key = uKey + "\u0001" + f.grp + "\u0001" + f.meter + "\u0001" + f.mr;
@@ -193,6 +220,9 @@
         m.billable++; ce.billable++;
 
         m.rev += f.thisMonth;
+        ce.rev += f.thisMonth;
+        if (f.paid) { m.payBand[f.loadBand]++; m.payBandAmt[f.loadBand] += f.thisMonth; }
+        if (f.assKnown) { m.assKnown++; m.prevAss += f.prevAss; m.curAss += f.curAss; }
         if (f.payDay >= 0) { m.dayAmt[f.payDay] += f.payAmt; m.dayCnt[f.payDay]++; }
         if (f.lmDayIdx >= 0) { m.lmDayAmt[f.lmDayIdx] += f.mAmt; m.lmDayCnt[f.lmDayIdx]++; }
         if (f.lmInDay) m.lmDay += f.mAmt;
@@ -219,10 +249,14 @@
           if (f.band >= 0) { m.band[f.band]++; m.bandAmt[f.band] += f.out; }
         }
         if (f.never) { m.never++; m.neverAmt += Math.max(f.out, 0); }
+        if (f.out > 0) {                                              /* v20.12: defaulter */
+          m.def++; m.defAmt += f.out; ce.def++; ce.defAmt += f.out;
+          m.defBand[f.loadBand]++; m.defBandAmt[f.loadBand] += f.out;
+        }
       }
     });
 
-    return { key: ctx.key, ctx: ctx, cells: cells, units: Array.from(units.values()) };
+    return { key: ctx.key, ctx: ctx, cells: cells, units: Array.from(units.values()), npl: npl };
   }
 
   function add(t, m) {
@@ -452,7 +486,103 @@
     });
     const dTotal = ["Total", L(sumCnt, { m: "days", from: from }), RS(sumAmt)];
     if (cmp) dTotal.push(RS(sumLm));
-    html += note("Day-wise (last payment date of each consumer):") + table(dHead, dRows, dTotal);
+    html += note("Day-wise (last payment date of each consumer):") + '<div id="pgDaySlot"></div>' + table(dHead, dRows, dTotal);
+
+    /* v20.11: payments received this month by tariff category and by load */
+    const tot = col.total;
+    const catRows = CAT_ORDER.filter(k => tot.cats[k] && tot.cats[k].paid)
+      .map(k => [catLabel(k), L(tot.cats[k].paid, { m: "paid", cat: k }), RS(tot.cats[k].rev), PCT(tot.cats[k].rev, tot.rev)]);
+    html += note("Payment received by category (this month):") +
+      table(["Category", "Consumers paid", "Amount", "Of total"], catRows,
+        ["Total", L(tot.paid, { m: "paid" }), RS(tot.rev), tot.rev ? "100%" : "—"]);
+    const loadRows = UNBILLED_BANDS.map((b, i) => [b + " kW/kVA/BHP", L(tot.payBand[i], { m: "payBand", band: i }),
+      RS(tot.payBandAmt[i]), PCT(tot.payBandAmt[i], tot.rev)]);
+    html += note("Payment received by load (this month):") +
+      table(["Load", "Consumers paid", "Amount", "Of total"], loadRows, null);
+    return html;
+  }
+
+  /* v20.11: current assessment and collection efficiency */
+  function assessmentHtml(col, ctx) {
+    if (!col.total.assKnown) return note("The assessment comes with the next daily update (Fieldwork Master Tool).");
+    const t2 = unitRows(col, (m, uq) => [RS(m.prevAss), RS(m.lmTotal), PCT(m.lmTotal, m.prevAss),
+      RS(m.curAss), L(m.billed, Object.assign({ m: "billed" }, uq)), RS(m.rev), PCT(m.rev, m.prevAss)]);
+    return table([LEVEL_LABEL[sel.level],
+      monthName(ctx.masterMonth) + " assessment", monthName(ctx.masterMonth) + " collected", monthName(ctx.masterMonth) + " efficiency",
+      monthName(ctx.monthStart.slice(0, 7)) + " assessed so far", "Billed so far", monthName(ctx.monthStart.slice(0, 7)) + " collected",
+      monthName(ctx.monthStart.slice(0, 7)) + " efficiency so far (" + monthName(ctx.monthStart.slice(0, 7)) + " collected ÷ " +
+        monthName(ctx.masterMonth) + " assessment)"],
+      t2.rows, t2.total) +
+      note("Assessment = current assessment of the bill (" + monthName(ctx.masterMonth) + ": from the master; " +
+        monthName(ctx.monthStart.slice(0, 7)) + ": from the billed report, only consumers billed so far). " +
+        "Efficiency = amount collected ÷ assessment.");
+  }
+
+  /* v20.11: office Never Paid / Long Unpaid lists - paid after the list, disconnected, time given */
+  function nplLatestVisit() {
+    const byAcct = {};
+    ((drive && drive.rows) || []).forEach(r => {
+      const old = byAcct[r.acct];
+      if (!old || r.date >= old.date) byAcct[r.acct] = r;
+    });
+    return byAcct;
+  }
+  let nplVisits = {};
+  /* v20.12: latest disconnection visit of an account, for the office list lists */
+  const VISIT_STATUS_TEXT = { DISCONNECTED: "Disconnected", "TIME GIVEN FOR PAYMENT": "Time given", PAID: "Paid at visit" };
+  function nplVisit(acct) {
+    const v = nplVisits[String(acct || "")];
+    return v ? { date: formatListDate(v.date), status: VISIT_STATUS_TEXT[v.status] || v.status,
+      commit: v.commit ? formatListDate(v.commit) : "" } : null;
+  }
+  function nplVisitText(acct) {
+    const v = nplVisit(acct);
+    return v ? "Visit " + v.date + " · " + v.status + (v.commit ? " · Committed " + v.commit : "") : "";
+  }
+  function nplStatus(x) {
+    const v = nplVisits[x.acct];
+    return v ? v.status : "";
+  }
+  function nplHtml() {
+    const list = (data.npl || []).filter(x => unitMatches(x.u) && groupOk(x.grp) && (sel.meter === "ALL" || x.meter === sel.meter));
+    if (!(data.npl || []).length) {
+      return note("No office list on this phone yet. Put the office Never Paid / Long Unpaid files in the Fieldwork Master Tool " +
+        "folder data\\lists; they come with the next daily update.");
+    }
+    nplVisits = nplLatestVisit();
+    const levelIdx = LEVELS.indexOf(sel.level);
+    const blank = () => ({ n: 0, listOut: 0, paid: 0, amt: 0, disc: 0, tg: 0, notPaid: 0, notPaidOut: 0 });
+    let html = "";
+    let dates = new Set();
+    [["NEVER PAID", "Never paid"], ["LONG UNPAID", "Long unpaid"]].forEach(([type, name]) => {
+      const total = blank(), byUnit = new Map();
+      list.filter(x => x.type === type).forEach(x => {
+        if (x.date) dates.add(x.date);
+        const st = nplStatus(x);
+        const addTo = t => {
+          t.n++; t.listOut += x.listOut;
+          if (x.paid) { t.paid++; t.amt += x.amt; } else { t.notPaid++; t.notPaidOut += Math.max(x.out, 0); }
+          if (st === "DISCONNECTED") t.disc++;
+          if (isTimeGiven(st)) t.tg++;
+        };
+        addTo(total);
+        const k = x.u[levelIdx];
+        if (!byUnit.has(k)) byUnit.set(k, blank());
+        addTo(byUnit.get(k));
+      });
+      const row = (t, uq) => [L(t.n, Object.assign({ m: "npl", type: type, st: "all" }, uq)), RS(t.listOut),
+        L(t.paid, Object.assign({ m: "npl", type: type, st: "paid" }, uq)), RS(t.amt), PCT(t.paid, t.n),
+        L(t.disc, Object.assign({ m: "npl", type: type, st: "disc" }, uq)),
+        L(t.tg, Object.assign({ m: "npl", type: type, st: "tg" }, uq)),
+        L(t.notPaid, Object.assign({ m: "npl", type: type, st: "notPaid" }, uq)), RS(t.notPaidOut)];
+      const rows = dlSortValues(Array.from(byUnit.keys())).map(k =>
+        [escapeHtml(label(k))].concat(row(byUnit.get(k), { lvl: levelIdx, unit: k })));
+      html += note(name + ":") + table([LEVEL_LABEL[sel.level], "On list", "List outstanding", "Paid", "Amount paid", "Paid %",
+        "Disconnected", "Time given", "Not paid yet", "Outstanding now"], rows, ["Total"].concat(row(total, {})));
+    });
+    const d = Array.from(dates).sort().pop();
+    html += note("Office list" + (d ? " of " + formatListDate(d) : "") + " (all connection statuses). Paid = a payment after the list " +
+      "(never paid: any payment). Disconnected / Time given = latest disconnection visit (tap REFRESH in Disconnection drive).");
     return html;
   }
 
@@ -511,15 +641,21 @@
       ["Total billed", L(billed, { m: "billed" }), billed ? "100%" : "—"]);
   }
 
+  /* v20.12: defaulters (outstanding above ₹0) - by area, category and load */
   function unpaidHtml(col) {
-    const t = unitRows(col, (m, uq) => [L(m.unpaid, Object.assign({ m: "unpaid" }, uq)), RS(m.unpaidAmt),
-      L(m.never, Object.assign({ m: "never" }, uq)), RS(m.neverAmt)]);
-    const bands = UNPAID_BANDS.map((b, i) => [b + " kW/kVA/BHP", L(col.total.band[i], { m: "uBand", band: i }), RS(col.total.bandAmt[i])]);
-    const cats = CAT_ORDER.filter(k => col.total.cats[k] && col.total.cats[k].unpaid)
-      .map(k => [catLabel(k), L(col.total.cats[k].unpaid, { m: "unpaid", cat: k }), RS(col.total.cats[k].unpaidAmt)]);
-    return table([LEVEL_LABEL[sel.level], "Unpaid", "Outstanding", "Never paid", "Never paid outst."], t.rows, t.total) +
-      note("Unpaid by load:") + table(["Load", "Unpaid", "Outstanding"], bands, null) +
-      note("Unpaid by category:") + table(["Category", "Unpaid", "Outstanding"], cats, null);
+    const head = ["Defaulters", "Outstanding", "Not paid this month", "Their outstanding"];
+    const t = unitRows(col, (m, uq) => [L(m.def, Object.assign({ m: "def" }, uq)), RS(m.defAmt),
+      L(m.unpaid, Object.assign({ m: "unpaid" }, uq)), RS(m.unpaidAmt)]);
+    const tot = col.total;
+    const cats = CAT_ORDER.filter(k => tot.cats[k] && tot.cats[k].def)
+      .map(k => [catLabel(k), L(tot.cats[k].def, { m: "def", cat: k }), RS(tot.cats[k].defAmt),
+        L(tot.cats[k].unpaid, { m: "unpaid", cat: k }), RS(tot.cats[k].unpaidAmt)]);
+    const bands = UNPAID_BANDS.map((b, i) => [b + " kW/kVA/BHP", L(tot.defBand[i], { m: "defBand", band: i }), RS(tot.defBandAmt[i]),
+      L(tot.band[i], { m: "unpaidBand", band: i }), RS(tot.bandAmt[i])]);
+    const total = ["Total", L(tot.def, { m: "def" }), RS(tot.defAmt), L(tot.unpaid, { m: "unpaid" }), RS(tot.unpaidAmt)];
+    return table([LEVEL_LABEL[sel.level]].concat(head), t.rows, t.total) +
+      note("Defaulters by category:") + table(["Category"].concat(head), cats, total) +
+      note("Defaulters by load:") + table(["Load"].concat(head), bands, total);
   }
 
   /* ---------- disconnection drive (server, kept for offline) ---------- */
@@ -546,12 +682,13 @@
         if (!d.date || String(d.date) < oldest) continue;
         const c = await getMasterByAccountInput(d.account_id);
         if (!c) { missing++; continue; }
-        if (!isBillable(c.CONNECTION_STATUS)) { notBillable++; continue; }
+        /* v20.12: every visited consumer, billable or not */
         const cat = category(supplyCode(c.SUPPLY_TYPE));
         rows.push({
           acct: String(c.ACCT_ID || ""),
           status: String(d.status || "").toUpperCase(),
           date: String(d.date || ""),
+          commit: parseMasterDate(d.committed_date) || "",
           userId: String(d.user_id || ""),
           user: String(d.user_name || d.user_id || ""),
           u: [dlVal(c.SDO_CODE), dlVal(c.SUBSTATION), dlVal(c.FEEDER), dlVal(c.feeded_village_name)],
@@ -895,7 +1032,20 @@
       case "basis": return f.billed && f.basis === q.code;
       case "unpaid": return f.unpaid;
       case "uBand": return f.band === q.band;
+      case "def": return f.out > 0;                                         /* v20.12 */
+      case "defBand": return f.out > 0 && f.loadBand === q.band;
+      case "unpaidBand": return f.unpaid && f.loadBand === q.band;
       case "never": return f.never;
+      case "payBand": return f.paid && f.loadBand === q.band;                  /* v20.11 */
+      case "npl": {
+        if (f.npl !== q.type) return false;
+        const st = nplVisits[f.acct] ? nplVisits[f.acct].status : "";
+        if (q.st === "paid") return f.nplPaid;
+        if (q.st === "notPaid") return !f.nplPaid;
+        if (q.st === "disc") return st === "DISCONNECTED";
+        if (q.st === "tg") return isTimeGiven(st);
+        return true;
+      }
     }
     return false;
   }
@@ -926,14 +1076,14 @@
         const ctx = data.ctx, list = [];
         await forEachMasterBatch(batch => {
           for (const c of batch) {
-            if (!isBillable(c.CONNECTION_STATUS)) continue;
+            if (!isBillable(c.CONNECTION_STATUS) && !(q.m === "npl" && nplType(c))) continue;
             const f = facts(c, ctx);
             if (listMatch(q, f)) list.push({ c: c, f: f });
           }
         });
         list.sort((x, y) => x.f.u[1].localeCompare(y.f.u[1]) || x.f.u[2].localeCompare(y.f.u[2]) ||
           x.f.u[3].localeCompare(y.f.u[3]) || String(x.c.ACCT_ID).localeCompare(String(y.c.ACCT_ID), undefined, { numeric: true }));
-        shown = { title: title, filters: filterText(), kind: "master", list: list };
+        shown = { title: title, filters: filterText(), kind: "master", list: list, npl: q.m === "npl" };
       }
     } catch (e) {
       console.error(e);
@@ -973,6 +1123,7 @@
         '<div class="pg-li-sub">' + e(c.SUPPLY_TYPE) + " · Load " + e(c.LOAD) + " · Outstanding " + RS(f.out) + "</div>" +
         '<div class="pg-li-sub">Last paid ' + e(formatListDate(f.pay || "") || "—") + (f.pay ? " (" + RS(f.payAmt) + ")" : "") +
         " · This month " + RS(f.thisMonth) + "</div>" +
+        (s.npl ? '<div class="pg-li-sub">' + e(nplVisitText(c.ACCT_ID) || "Not visited (disconnection drive)") + "</div>" : "") +
         '<div class="pg-li-sub">' + j("Bill " + (formatListDate(parseMasterDate(c.LAST_BILL_DATE) || "") || "—"),
           c.BILL_BASIS, c.METER_READ_REMARK) + "</div></div>";
     }).join("");
@@ -991,7 +1142,12 @@
     if (groups.length > 25 && !confirm(groups.length + " separate Excel files will be made. Continue?")) return;
     const files = await saveXlsxSet(groups, (l, t) => s.kind === "drive"
       ? saveXlsx(t, s.filters, DRIVE_XLS_HEAD, l.map((r, i) => driveXlsRow(r, i, s.pays)), "")
-      : saveXlsx(t, s.filters, MASTER_XLS_HEAD, l.map(masterXlsRow), ""), listFileBase(s), s.title, "pglStatusMsg");
+      : s.npl
+        ? saveXlsx(t, s.filters, MASTER_XLS_HEAD.concat(["Office List", "List Last Pay Date", "Paid After List", "Visit Date", "Visit Status", "Committed Date"]),
+            l.map((x, i) => { const v = nplVisit(x.c.ACCT_ID) || {};
+              return masterXlsRow(x, i).concat([x.f.npl, formatListDate(parseMasterDate(x.c.NPL_PAY_DATE) || ""), x.f.nplPaid ? "YES" : "NO",
+                v.date || "", v.status || "", v.commit || ""]); }), "")
+        : saveXlsx(t, s.filters, MASTER_XLS_HEAD, l.map(masterXlsRow), ""), listFileBase(s), s.title, "pglStatusMsg");
     setStatus("pglStatusMsg", xlsDoneText(files, s.list.length), "ok");
   }
   const listFileBase = s => "List_" + s.title.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60) + "_" + dlFileStamp();
@@ -1008,21 +1164,30 @@
       doc.setFontSize(12);
       doc.text(title, 10, 12);
       doc.setFontSize(8);
-      doc.text("Data up to " + formatListDate(data.ctx.report) + ". Billable consumers. Sorted by substation, feeder, village, account.", 10, 17);
+      doc.text("Data up to " + formatListDate(data.ctx.report) + (s.npl ? ". Office list consumers (all connection statuses)." : ". Billable consumers.") +
+        " Sorted by substation, feeder, village, account.", 10, 17);
       doc.text("Filters: " + s.filters + "   |   Consumers: " + list.length.toLocaleString("en-IN"), 10, 21);
       const body = list.map((x, i) => {
         const c = x.c, f = x.f;
-        return [i + 1, c.ACCT_ID, c.NAME || "", c.FATHER_NAME || "", c.ADDRESS || "", label(f.u[3]), label(f.u[1]), label(f.u[2]),
+        const row = [i + 1, c.ACCT_ID, c.NAME || "", c.FATHER_NAME || "", c.ADDRESS || "", label(f.u[3]), label(f.u[1]), label(f.u[2]),
           c.MOBILE_NUMBER || "", c.SUPPLY_TYPE || "", c.LOAD || "", Math.round(f.out).toLocaleString("en-IN"),
           formatListDate(f.pay || ""), f.pay ? Math.round(f.payAmt).toLocaleString("en-IN") : "",
           Math.round(f.thisMonth).toLocaleString("en-IN"), formatListDate(parseMasterDate(c.LAST_BILL_DATE) || ""),
           c.BILL_BASIS || "", c.METER_READ_REMARK || ""];
+        if (s.npl) {                                                   /* v20.12 */
+          const v = nplVisit(c.ACCT_ID) || {};
+          row.splice(14, 4, (f.npl === "NEVER PAID" ? "Never paid" : "Long unpaid") + (f.nplPaid ? " (paid)" : ""),
+            v.date || "", v.status || "", v.commit || "");
+        }
+        return row;
       });
       doc.autoTable({
         startY: 24,
         margin: { left: 8, right: 8 },
         head: [["S.No", "Account", "Name", "Father/Husband", "Address", "Village", "Substation", "Feeder", "Mobile",
-          "Supply", "Load", "Outstanding (Rs.)", "Last Pay Date", "Last Pay Amt", "This Month Paid", "Bill Date", "Bill Basis", "Remark"]],
+          "Supply", "Load", "Outstanding (Rs.)", "Last Pay Date", "Last Pay Amt"].concat(s.npl
+          ? ["List", "Visit Date", "Visit Status", "Committed Date"]
+          : ["This Month Paid", "Bill Date", "Bill Basis", "Remark"])],
         body: body,
         theme: "grid",
         styles: { fontSize: 6.3, cellPadding: 1, overflow: "linebreak", valign: "middle", lineColor: [120, 120, 120], lineWidth: 0.1, textColor: [0, 0, 0] },
@@ -1093,7 +1258,12 @@
       MONTHS[Number(ctx.billingMonth.slice(5, 7)) - 1] + " " + ctx.billingMonth.slice(0, 4) +
       " · billable consumers · " + GROUP_LABEL[sel.group] +
       (sel.meter === "ALL" ? "" : sel.meter === "S" ? " · smart meters" : " · non-smart meters");
+    const dayBox = $("pgFromDateBox");                                  /* v20.12: kept out while redrawing */
+    if (dayBox) $("pgRevenue").insertAdjacentElement("beforebegin", dayBox);
     $("pgRevenue").innerHTML = revenueHtml(col, ctx);
+    if (dayBox && $("pgDaySlot")) $("pgDaySlot").appendChild(dayBox);
+    if ($("pgNpl")) $("pgNpl").innerHTML = nplHtml();                       /* v20.11 */
+    if ($("pgAssess")) $("pgAssess").innerHTML = assessmentHtml(col, ctx);
     $("pgTurnUp").innerHTML = turnUpHtml(col, ctx);
     $("pgBilling").innerHTML = billingHtml(col);
     $("pgRemark").innerHTML = countHtml(col.total.remark, col.total.billed, "remark");

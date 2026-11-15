@@ -122,6 +122,34 @@
   margin-top:4px;
 }
 
+/* v20.11: summaries as tables (status in rows, substations in columns) */
+.dash-mtx-box{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:6px}
+.dash-mtx{border-collapse:collapse;width:100%;font-size:12.5px}
+.dash-mtx th,.dash-mtx td{border:1px solid #e2e8f0;padding:6px 7px;text-align:right;white-space:nowrap}
+.dash-mtx th{background:#f1f5f9;font-weight:700;white-space:nowrap}
+.dash-mtx th:first-child,.dash-mtx td:first-child{text-align:left;white-space:normal;min-width:110px}
+.dash-mtx td:last-child,.dash-mtx th:last-child{font-weight:700;background:#f8fafc}
+.dash-mtx tr.sep td{border-top:2px solid #cbd5e1}
+.dash-mtx-note{font-size:11.5px;color:#64748b;margin:2px 0 8px}
+.dash-report-row{display:flex;flex-wrap:nowrap;align-items:center;justify-content:flex-start;gap:5px;font-size:11.5px;color:#64748b;margin:0 0 6px}
+.dash-report-label{font-size:12px;font-weight:700;color:#475569;margin:8px 0 4px}
+.dash-report-lists{flex-wrap:wrap}
+#dashboardCard .dash-report-lists button{font-size:10.5px !important;padding:4px 8px !important}
+a.dash-link{color:#0f766e;font-weight:700;text-decoration:underline}
+.dash-list-overlay{position:fixed;inset:0;z-index:9400;background:rgba(15,23,42,.45);display:flex;align-items:flex-end;justify-content:center}
+.dash-list-overlay.hidden{display:none}
+.dash-list-card{background:#fff;width:100%;max-width:720px;max-height:88vh;overflow:auto;border-radius:16px 16px 0 0;padding:14px 16px}
+.dash-list-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.dash-list-head b{font-size:15px}
+.dash-list-head button{width:auto;margin:0;padding:6px 12px;font-size:12px}
+.dash-list-btns{display:flex;gap:8px}
+.dash-list-btns button{margin:4px 0;font-size:12px;padding:8px 10px}
+.dash-li{border-bottom:1px solid #e2e8f0;padding:8px 2px;font-size:13px}
+.dash-li div{font-size:12px;color:#475569;margin-top:2px}
+#dashboardCard .dash-report-row input[type=date]{width:118px !important;flex:0 1 118px;min-width:0;margin:0 !important;padding:2px 4px !important;font-size:11.5px !important;border-radius:6px;min-height:0 !important;height:26px !important;color:#475569}
+.dash-report-row span{white-space:nowrap}
+#dashboardCard .dash-report-row button{width:auto !important;margin:0 !important;padding:3px 10px !important;font-size:11.5px !important;min-height:0 !important;flex:0 0 auto}
+
 .substation-table,
 .dashboard-table-wrap{
   overflow:visible;
@@ -680,6 +708,15 @@
         DEFAULTER LIST(बकायेदार सूची)
         <small>Filter defaulters and download a PDF list(बकायेदार फ़िल्टर करें और PDF सूची डाउनलोड करें)</small>
       </button>
+      <button id="openNeverPaidListBtn" class="survey-type-btn" type="button" style="margin-top:10px">
+        NEVER PAID LIST(कभी भुगतान नहीं सूची)
+        <small>Office list, with who has paid since(कार्यालय सूची, सूची के बाद भुगतान सहित)</small>
+      </button>
+      <button id="openLongUnpaidListBtn" class="survey-type-btn" type="button" style="margin-top:10px">
+        LONG UNPAID LIST(लंबे समय से बकाया सूची)
+        <small>Office list, with who has paid since(कार्यालय सूची, सूची के बाद भुगतान सहित)</small>
+      </button>
+
       <button id="openDisconnectedUnpaidBtn" class="survey-type-btn" type="button" style="margin-top:10px">
 
         DISCONNECTED BUT UNPAID LIST(विच्छेदित किन्तु अदत्त सूची)
@@ -707,6 +744,9 @@
         .pg-seg button.on{background:#0d9488;color:#fff}
         .pg-section{margin-top:20px;border-top:1px solid #e2e8f0;padding-top:12px}
         .pg-section h3{font-size:15px;margin:0 0 8px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+        .pg-day-from{display:flex;align-items:center;gap:8px;margin:2px 0 6px}
+        .pg-day-from label{margin:0;font-size:12px;white-space:nowrap}
+        .pg-day-from input{width:auto;margin:0;padding:4px 8px;font-size:13px}
         .pg-note{font-size:12px;color:#5d7178;margin:10px 0 6px}
         .pg-scroll{overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px}
         table.pg-table{border-collapse:collapse;width:100%;font-size:12.5px}
@@ -757,10 +797,18 @@
 
       <div class="pg-section">
         <h3>Revenue realised(राजस्व वसूली)</h3>
-        <label for="pgFromDate">Day-wise from(इस तारीख से दिनवार)</label>
-        <input id="pgFromDate" type="date">
+        <div id="pgFromDateBox" class="pg-day-from">
+          <label for="pgFromDate">Day-wise from(इस तारीख से दिनवार)</label>
+          <input id="pgFromDate" type="date">
+        </div>
         <div id="pgRevenue"></div>
       </div>
+
+      <div class="pg-section">
+        <h3>Never paid and long unpaid (office list)(कभी भुगतान नहीं एवं लंबे समय से बकाया - कार्यालय सूची)</h3>
+        <div id="pgNpl"></div>
+      </div>
+
 
       <div class="pg-section">
         <h3>Disconnection drive(विच्छेदन अभियान)
@@ -801,6 +849,12 @@
       </div>
 
       <div class="pg-section">
+        <h3>Current assessment and collection efficiency(वर्तमान निर्धारण एवं वसूली दक्षता)</h3>
+        <div id="pgAssess"></div>
+      </div>
+
+
+      <div class="pg-section">
         <h3>Meter read remark, billed this month(मीटर रीडिंग टिप्पणी)</h3>
         <div id="pgRemark"></div>
       </div>
@@ -811,8 +865,8 @@
       </div>
 
       <div class="pg-section">
-        <h3>Unpaid and never paid(बकाया एवं कभी भुगतान नहीं)</h3>
-        <p class="pg-note">Unpaid: In Service / TD consumers with outstanding above ₹0 and no payment this month. Never paid: no payment or last payment before 2010.(अदत्त: इस माह भुगतान नहीं। कभी भुगतान नहीं: 2010 से पहले या कभी नहीं।)</p>
+        <h3>Defaulters(बकायेदार)</h3>
+        <p class="pg-note">Defaulter: In Service / TD consumer with outstanding above ₹0. Not paid this month: no payment this month.(बकायेदार: ₹0 से अधिक बकाया वाले उपभोक्ता।)</p>
         <div id="pgUnpaid"></div>
       </div>
     </section>
@@ -840,6 +894,22 @@
 
       <div id="dlFilters">
         <p class="muted">Tap a filter to open it. All options are selected by default. Each filter shows only the options that exist under the filters above it.(फ़िल्टर खोलने के लिए टैप करें। शुरू में सभी विकल्प चुने होते हैं। हर फ़िल्टर में केवल वही विकल्प दिखते हैं जो ऊपर के फ़िल्टर में उपलब्ध हैं।)</p>
+
+      <label for="dlNpl">Office list(कार्यालय सूची)</label>
+      <select id="dlNpl">
+        <option value="ALL">All consumers(सभी उपभोक्ता)</option>
+        <option value="NEVER PAID">Never paid list(कभी भुगतान नहीं सूची)</option>
+        <option value="LONG UNPAID">Long unpaid list(लंबे समय से बकाया सूची)</option>
+        <option value="BOTH">Both lists - Never paid + Long unpaid(दोनों सूचियाँ - कभी भुगतान नहीं + लंबे समय से बकाया)</option>
+      </select>
+      <div id="dlNplPaidBox" class="hidden">
+        <label for="dlNplPaid">Payment after the list(सूची के बाद भुगतान)</label>
+        <select id="dlNplPaid">
+          <option value="ALL">All(सभी)</option>
+          <option value="NOTPAID">Not paid yet(अभी तक भुगतान नहीं)</option>
+          <option value="PAID">Paid(भुगतान किया)</option>
+        </select>
+      </div>
 
       <div id="dlStatusBox" class="dl-filter">
         <button type="button" class="dl-filter-head" data-target="dlStatus">Connection Status(कनेक्शन स्थिति)<span id="dlStatusSummary" class="dl-summary">All</span></button>
@@ -909,6 +979,9 @@
           <label for="dlSinceDate">Not paid since(इस तारीख से भुगतान नहीं)</label>
           <input id="dlSinceDate" type="date">
         </div>
+
+
+
 
         <label for="dlDocMode">Date of Connection DOC(कनेक्शन तिथि)</label>
         <select id="dlDocMode">
@@ -1142,7 +1215,10 @@
             <option value="PAID OFFLINE AT COUNTER">Paid Offline at Counter(काउंटर पर ऑफलाइन भुगतान किया)</option>
             <option value="PAYMENT RECEIVED BY LINEMAN">Payment Received by Lineman(लाइनमैन द्वारा भुगतान प्राप्त कर लिया)</option>
           </select>
+          <label for="disconnectPaidAmount">Amount Paid, Rs.(भुगतान की गई राशि)</label>
+          <input id="disconnectPaidAmount" inputmode="decimal" placeholder="Amount paid by the consumer(उपभोक्ता द्वारा भुगतान राशि)">
         </div>
+
 
         <div id="disconnectCommitDateWrap" class="hidden">
           <label for="disconnectCommitDate">Committed Payment Date(भुगतान की प्रतिबद्ध दिनांक)</label>
@@ -1162,6 +1238,10 @@
 
         <label for="disconnectMobile">Mobile Number(मोबाइल नंबर)</label>
         <input id="disconnectMobile" inputmode="numeric" maxlength="10" placeholder="10 digit mobile number">
+        <div id="disconnectMobileRefusedWrap" class="check-row hidden">
+          <label><input id="disconnectMobileRefused" type="checkbox">CONSUMER REFUSED FOR MOBILE NUMBER(उपभोक्ता ने मोबाइल नंबर देने से मना किया)</label>
+        </div>
+
 
         <label for="disconnectHouseCondition">House Condition(मकान की स्थिति)</label>
         <select id="disconnectHouseCondition">
@@ -1753,7 +1833,8 @@
 
   <div class="dashboard-section">
     <h3>Survey Summary</h3>
-    <div class="dashboard-summary-box">
+    <div id="dashSurveyTable" class="dash-mtx-box"></div>
+    <div class="dashboard-summary-box" style="display:none">
       <div class="dashboard-summary-grid">
         <div><b id="sumSurveyTotal">0</b><span>Door-to-Door Survey</span></div>
         <div><b id="sumMeterOk">0</b><span>Meter OK</span></div>
@@ -1767,7 +1848,21 @@
 
   <div class="dashboard-section">
     <h3>Disconnection Summary</h3>
-    <div class="dashboard-summary-box">
+    <div id="dashDiscTable" class="dash-mtx-box"></div>
+    <div class="dash-report-label">Download disconnection report(डिस्कनेक्शन रिपोर्ट डाउनलोड करें)</div>
+    <div class="dash-report-row">
+      <input id="dashRepFrom" type="date" aria-label="Report from">
+      <span>–</span>
+      <input id="dashRepTo" type="date" aria-label="Report to">
+      <button id="dashRepPdfBtn" type="button" class="small-btn">PDF</button>
+      <button id="dashRepShareBtn" type="button" class="small-btn hidden">SHARE(भेजें)</button>
+    </div>
+    <div class="dash-report-row dash-report-lists">
+      <button id="dashTgNotPaidBtn" type="button" class="small-btn">TIME GIVEN BUT NOT YET PAID</button>
+      <button id="dashPaidNotPaidBtn" type="button" class="small-btn">PAID AT VISIT BUT NOT ACTUALLY PAID</button>
+    </div>
+    <div id="dashRepStatus" class="status"></div>
+    <div class="dashboard-summary-box" style="display:none">
       <div class="dashboard-summary-grid">
         <div><b id="discTotal">0</b><span>Total</span></div>
         <div><b id="discPaid">0</b><span>Paid</span></div>
@@ -1780,7 +1875,8 @@
 
   <div class="dashboard-section">
     <h3>Recheck Summary</h3>
-    <div class="dashboard-summary-box">
+    <div id="dashRecheckTable" class="dash-mtx-box"></div>
+    <div class="dashboard-summary-box" style="display:none">
       <div class="dashboard-summary-grid">
         <div><b id="recheckTotal">0</b><span>Total</span></div>
         <div><b id="recheckConnected">0</b><span>Found Connected</span></div>
@@ -1794,7 +1890,8 @@
 
   <div class="dashboard-section">
     <h3>Phone Calling Summary</h3>
-    <div class="dashboard-summary-box">
+    <div id="dashPhoneTable" class="dash-mtx-box"></div>
+    <div class="dashboard-summary-box" style="display:none">
       <div class="dashboard-summary-grid">
         <div><b id="phoneTotal">0</b><span>Total Calls</span></div>
         <div><b id="dashboardPhoneOutstanding">₹0</b><span>Total Outstanding</span></div>
@@ -2028,9 +2125,9 @@
 <script src="./jspdf.umd.min.js"></script>
 <script src="./jspdf.plugin.autotable.min.js"></script>
 
-<script src="app.js?v=20.10"></script>
-<script src="progress.js?v=20.10"></script>
-<script src="consumer-view.js?v=20.10"></script>
+<script src="app.js?v=20.12"></script>
+<script src="progress.js?v=20.12"></script>
+<script src="consumer-view.js?v=20.12"></script>
 
 <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));}</script>
 </body>
