@@ -78,10 +78,16 @@
 }
 
 .dashboard-filter-action-row{
-  display:grid;
-  grid-template-columns:1fr 1fr;
+  display:flex;
+  justify-content:flex-end;
   gap:8px;
 }
+#todayDashboardBtn,#clearDashboardFilterBtn{
+  width:auto !important;margin:0 !important;min-height:0 !important;
+  padding:5px 16px !important;font-size:12px !important;border-radius:999px !important;box-shadow:none !important;
+}
+#todayDashboardBtn{background:#e6f6f3 !important;color:#0f766e !important;border:1px solid #99d5c9 !important}
+#clearDashboardFilterBtn{background:#fff !important;color:#64748b !important;border:1px solid #cbd5e1 !important}
 
 .dashboard-load-btn{
   width:100%;
@@ -134,6 +140,14 @@
 .dash-report-row{display:flex;flex-wrap:nowrap;align-items:center;justify-content:flex-start;gap:5px;font-size:11.5px;color:#64748b;margin:0 0 6px}
 .dash-report-label{font-size:12px;font-weight:700;color:#475569;margin:8px 0 4px}
 .dash-report-lists{flex-wrap:wrap}
+.sig-canvas{width:100%;height:auto;aspect-ratio:600/220;border:1.5px dashed #94a3b8;border-radius:10px;background:#fff;touch-action:none;margin:8px 0}
+.sig-upload{display:inline-flex;align-items:center;justify-content:center;border:1px solid #cbd5e1;border-radius:10px;padding:8px 10px;font-size:12px;font-weight:700;cursor:pointer;margin:4px 0;flex:1}
+.dash-sig-line{margin-top:6px}
+#dashboardCard .dash-sig-line button{margin-left:6px !important}
+.dash-list-line.dash-today-line{background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;padding:8px 10px;margin:8px 0 4px}
+#dashboardCard #dashRepShareBtn{width:auto !important;margin:4px 0 0 !important;padding:4px 12px !important;font-size:11.5px !important;min-height:0 !important}
+.dash-list-line{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid #eef2f7;font-size:12.5px;color:#334155}
+#dashboardCard .dash-list-line button{width:auto !important;margin:0 !important;padding:3px 12px !important;font-size:11.5px !important;min-height:0 !important;flex:0 0 auto}
 #dashboardCard .dash-report-lists button{font-size:10.5px !important;padding:4px 8px !important}
 a.dash-link{color:#0f766e;font-weight:700;text-decoration:underline}
 .dash-list-overlay{position:fixed;inset:0;z-index:9400;background:rgba(15,23,42,.45);display:flex;align-items:flex-end;justify-content:center}
@@ -902,6 +916,7 @@ a.dash-link{color:#0f766e;font-weight:700;text-decoration:underline}
         <option value="LONG UNPAID">Long unpaid list(लंबे समय से बकाया सूची)</option>
         <option value="BOTH">Both lists - Never paid + Long unpaid(दोनों सूचियाँ - कभी भुगतान नहीं + लंबे समय से बकाया)</option>
       </select>
+      <div id="dlNplNote" class="status"></div>
       <div id="dlNplPaidBox" class="hidden">
         <label for="dlNplPaid">Payment after the list(सूची के बाद भुगतान)</label>
         <select id="dlNplPaid">
@@ -1849,19 +1864,27 @@ a.dash-link{color:#0f766e;font-weight:700;text-decoration:underline}
   <div class="dashboard-section">
     <h3>Disconnection Summary</h3>
     <div id="dashDiscTable" class="dash-mtx-box"></div>
-    <div class="dash-report-label">Download disconnection report(डिस्कनेक्शन रिपोर्ट डाउनलोड करें)</div>
+    <div class="dash-list-line dash-sig-line"><span>Signature on report pages(रिपोर्ट पर हस्ताक्षर): <b id="dashSigState">Not added</b></span>
+      <span><button id="dashSigRemoveBtn" type="button" class="small-btn hidden">REMOVE</button>
+      <button id="dashSigBtn" type="button" class="small-btn">ADD / CHANGE</button></span></div>
+    <div class="dash-list-line dash-today-line"><span><b>Complete disconnection report of today(आज की पूर्ण विच्छेदन रिपोर्ट)</b></span>
+      <button id="dashRepTodayBtn" type="button" class="small-btn">DOWNLOAD</button></div>
+    <div class="dash-report-label">Download lists by dates(तिथि अनुसार सूची डाउनलोड करें)</div>
     <div class="dash-report-row">
       <input id="dashRepFrom" type="date" aria-label="Report from">
       <span>–</span>
       <input id="dashRepTo" type="date" aria-label="Report to">
-      <button id="dashRepPdfBtn" type="button" class="small-btn">PDF</button>
-      <button id="dashRepShareBtn" type="button" class="small-btn hidden">SHARE(भेजें)</button>
     </div>
-    <div class="dash-report-row dash-report-lists">
-      <button id="dashTgNotPaidBtn" type="button" class="small-btn">TIME GIVEN BUT NOT YET PAID</button>
-      <button id="dashPaidNotPaidBtn" type="button" class="small-btn">PAID AT VISIT BUT NOT ACTUALLY PAID</button>
-    </div>
+    <div class="dash-list-line"><span>Complete disconnection report(पूर्ण विच्छेदन रिपोर्ट)</span>
+      <button id="dashRepPdfBtn" type="button" class="small-btn">DOWNLOAD</button></div>
+    <div class="dash-list-line"><span>Time given but not yet paid(समय दिया पर भुगतान नहीं)</span>
+      <button id="dashTgNotPaidBtn" type="button" class="small-btn">DOWNLOAD</button></div>
+    <div class="dash-list-line"><span>Paid at visit but not actually paid(भ्रमण पर भुगतान बताया पर वास्तव में नहीं)</span>
+      <button id="dashPaidNotPaidBtn" type="button" class="small-btn">DOWNLOAD</button></div>
+    <div class="dash-list-line"><span>Disconnected but not yet paid(विच्छेदित पर भुगतान नहीं)</span>
+      <button id="dashDiscNotPaidBtn" type="button" class="small-btn">DOWNLOAD</button></div>
     <div id="dashRepStatus" class="status"></div>
+    <div class="dash-report-row"><button id="dashRepShareBtn" type="button" class="small-btn hidden">SHARE THE DOWNLOADED FILE(डाउनलोड फ़ाइल भेजें)</button></div>
     <div class="dashboard-summary-box" style="display:none">
       <div class="dashboard-summary-grid">
         <div><b id="discTotal">0</b><span>Total</span></div>
@@ -2125,9 +2148,9 @@ a.dash-link{color:#0f766e;font-weight:700;text-decoration:underline}
 <script src="./jspdf.umd.min.js"></script>
 <script src="./jspdf.plugin.autotable.min.js"></script>
 
-<script src="app.js?v=20.12"></script>
-<script src="progress.js?v=20.12"></script>
-<script src="consumer-view.js?v=20.12"></script>
+<script src="app.js?v=20.15"></script>
+<script src="progress.js?v=20.15"></script>
+<script src="consumer-view.js?v=20.15"></script>
 
 <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));}</script>
 </body>

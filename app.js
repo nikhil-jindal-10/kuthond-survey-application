@@ -3208,15 +3208,22 @@ function dlOutstanding(c) {
   return Number(String(c.TOTAL_OUTSTANDING == null ? "" : c.TOTAL_OUTSTANDING).replace(/,/g, "")) || 0;
 }
 
+function dlOptionsKey() {                                          /* v20.13: + daily update number */
+  return state.activeMasterStore + "|" + state.masterCount + "|" + ((getLocalMasterMeta() || {}).updates_seq || 0);
+}
+
 async function dlLoadOptions() {
 
-  const key = state.activeMasterStore + "|" + state.masterCount;
+  const key = dlOptionsKey();
   if (dlOptions && dlOptions.key === key) return dlOptions;
 
   const combos = new Map();
+  const nplCounts = {};                                             /* v20.14 */
 
   await forEachMasterBatch(batch => {
     for (const c of batch) {
+      const t = nplTypeOf(c);
+      if (t) nplCounts[t] = (nplCounts[t] || 0) + 1;
       const combo = {
         status: dlVal(c.CONNECTION_STATUS),
         sdo: dlVal(c.SDO_CODE),
@@ -3226,10 +3233,11 @@ async function dlLoadOptions() {
         cat: supplyCategory(c.SUPPLY_TYPE),
         supply: dlVal(c.SUPPLY_TYPE),
         mr: dlVal(c.MR_SOURCE_CD),
-        sbm: dlVal(c.SBM_MACHINE_ID)
+        sbm: dlVal(c.SBM_MACHINE_ID),
+        npl: nplTypeOf(c) || "-"                                  /* v20.12 */
       };
       combos.set(
-        [combo.status, combo.sdo, combo.sub, combo.feeder, combo.village, combo.supply, combo.mr, combo.sbm].join("|"),
+        [combo.status, combo.sdo, combo.sub, combo.feeder, combo.village, combo.supply, combo.mr, combo.sbm, combo.npl].join("|"),
         combo
       );
     }
@@ -3237,7 +3245,8 @@ async function dlLoadOptions() {
 
   dlOptions = {
     key: key,
-    combos: Array.from(combos.values())
+    combos: Array.from(combos.values()),
+    nplCounts: nplCounts
   };
   return dlOptions;
 }
@@ -3453,7 +3462,7 @@ async function openDefaulterList(mode) {
   showMainView("defaulterListCard");
   window.scrollTo(0, 0);
 
-  if (dlOptions && dlOptions.key === state.activeMasterStore + "|" + state.masterCount) {
+  if (dlOptions && dlOptions.key === dlOptionsKey()) {
     dlSwitchNplMode(mode);
     return;
   }
@@ -3474,6 +3483,7 @@ async function openDefaulterList(mode) {
 
     $("dlFilters").classList.remove("hidden");
     setStatus("dlStatusMsg", "");
+    dlNplEmptyNotice();
   } catch (e) {
     console.error(e);
     setStatus("dlStatusMsg", "Could not read Master Data. " + (e.message || ""), "error");
@@ -10253,6 +10263,7 @@ let dashLastFilters = null;            /* filters of the loaded dashboard (for t
 const dashRowsCache = {};              /* rows_type -> rows of the loaded dashboard */
 
 function renderDashboardSummaries(result) {
+  if (typeof showReportSignatureState === "function") showReportSignatureState();      /* v20.15 */
   dashLastFilters = {
     from_date: $("dashFromDate") ? $("dashFromDate").value : "",
     to_date: $("dashToDate") ? $("dashToDate").value : "",
@@ -10266,8 +10277,12 @@ function renderDashboardSummaries(result) {
   const mtx = (box, kind, data, rows, note) => {
     const el = $(box);
     if (!el) return;
+    /* v20.15: only the substations that have entries; none -> message, no table */
     const subs = Object.keys(data || {}).sort((a, b) => a.localeCompare(b));
-    if (!subs.length) { el.innerHTML = '<div class="dashboard-empty-state">No entries for the selected filter.</div>'; return; }
+    if (!subs.length) {
+      el.innerHTML = '<div class="dashboard-empty-state">No entries for the selected filter.</div>';
+      return;
+    }
     const link = (v, txt, sub, ri) => (Number(v) || 0) > 0
       ? '<a href="#" class="dash-link" data-kind="' + kind + '" data-sub="' + escapeHtml(sub) + '" data-row="' + ri + '">' + txt + "</a>"
       : txt;
@@ -10286,13 +10301,12 @@ function renderDashboardSummaries(result) {
     dashMtxRows[kind] = rows;
   };
   const row = (label, key, extra) => Object.assign({ label: label, key: key, get: c => (c && c[key]) || 0 }, extra || {});
-  const videoRows = [
+  const videoRows = missingLabel => [
     row("Videos uploaded", "video_uploaded", { sep: true, match: x => x.video === "video_uploaded" }),
-    row("Videos pending upload", "video_pending", { match: x => x.video === "video_pending" }),
-    row("No video (video needed)", "video_none", { match: x => x.video === "video_none" })
+    row("Videos recorded, not uploaded yet", "video_pending", { match: x => x.video === "video_pending" }),
+    row(missingLabel, "video_none", { match: x => x.video === "video_none" })
   ];
-  const videoNote = "Tap a number to see those consumers. Videos pending upload = recorded with the entry, not uploaded yet " +
-    "(entries still waiting on a phone are counted after they are uploaded). No video = only statuses that need a video.";
+  const videoNote = "Tap a number to see those consumers. Entries still waiting on a phone are counted after they are uploaded.";
   const st = s => x => x.status === s;
   const all = () => true;
   mtx("dashSurveyTable", "SURVEY", by.survey, [
@@ -10303,12 +10317,14 @@ function renderDashboardSummaries(result) {
   mtx("dashDiscTable", "DISCONNECTION", by.disconnection, [
     row("Total visits", "total", { match: all }), row("Disconnected", "disconnected", { match: st("DISCONNECTED") }),
     row("Time given", "time_given", { match: st("TIME GIVEN FOR PAYMENT") }), row("Paid", "paid", { match: st("PAID") }),
-    row("Total outstanding", "outstanding", { money: true, count: c => (c && c.total) || 0, match: all })].concat(videoRows), videoNote);
+    row("Total outstanding", "outstanding", { money: true, count: c => (c && c.total) || 0, match: all })]
+    .concat(videoRows("Disconnected, but no video recorded")), videoNote);
   mtx("dashRecheckTable", "RECHECK", by.recheck, [
     row("Total rechecks", "total", { match: all }), row("Found connected", "found_connected", { match: st("FOUND CONNECTED") }),
     row("Still disconnected", "still_disconnected", { match: st("STILL DISCONNECTED") }),
     row("House locked", "house_locked", { match: st("HOUSE LOCKED") }), row("Payment made", "payment_made", { match: st("PAYMENT MADE") }),
-    row("Total outstanding", "outstanding", { money: true, count: c => (c && c.total) || 0, match: all })].concat(videoRows), videoNote);
+    row("Total outstanding", "outstanding", { money: true, count: c => (c && c.total) || 0, match: all })]
+    .concat(videoRows("No video recorded (found connected / still disconnected / house locked)")), videoNote);
   const responses = {};
   Object.keys(by.phone_calling || {}).forEach(s => Object.keys(by.phone_calling[s].responses || {}).forEach(r => { responses[r] = true; }));
   mtx("dashPhoneTable", "PHONE_CALLING", by.phone_calling, [row("Total calls", "total", { match: all }),
@@ -10476,10 +10492,10 @@ async function shareDisconnectionReport() {
 
 /* mode: REPORT (every visit) / TG_NOT_PAID (time given, no payment since the visit) /
    PAID_NOT_PAID (paid at visit, no payment since the visit) */
-async function downloadDisconnectionReportPdf(mode) {
+async function downloadDisconnectionReportPdf(mode, fromDate, toDate) {
   mode = typeof mode === "string" ? mode : "REPORT";
   dashReportDates();
-  const from = $("dashRepFrom").value, to = $("dashRepTo").value;
+  const from = fromDate || $("dashRepFrom").value, to = toDate || $("dashRepTo").value;
   if (!from || !to || from > to) return setStatus("dashRepStatus", "Choose the report dates (from – to).", "error");
   if (!window.jspdf || !window.jspdf.jsPDF || !window.jspdf.jsPDF.API.autoTable) {
     return setStatus("dashRepStatus", "PDF library is not loaded. Please reload the app.", "error");
@@ -10507,6 +10523,7 @@ async function downloadDisconnectionReportPdf(mode) {
       const paidSince = !!pay && pay >= r.date;
       if (mode === "TG_NOT_PAID" && !(r.status === "TIME GIVEN FOR PAYMENT" && !paidSince)) continue;
       if (mode === "PAID_NOT_PAID" && !(r.status === "PAID" && !paidSince)) continue;
+      if (mode === "DISC_NOT_PAID" && !(r.status === "DISCONNECTED" && !paidSince)) continue;      /* v20.13 */
       const sub = String((c && c.SUBSTATION) || r.user_substation || "").replace(/_\d+$/, "");
       /* final outstanding: on the visit day (daily data, Apps Script) - else as saved at the visit */
       let out = amount(r.visit_day_outstanding), mark = "";
@@ -10539,7 +10556,8 @@ async function downloadDisconnectionReportPdf(mode) {
     }
     list.sort((a, b) => a.date.localeCompare(b.date) || a.sub.localeCompare(b.sub) || String(a.acct).localeCompare(String(b.acct)));
 
-    const TITLE = { REPORT: "DISCONNECTION REPORT", TG_NOT_PAID: "TIME GIVEN BUT NOT YET PAID", PAID_NOT_PAID: "PAID AT VISIT BUT NOT ACTUALLY PAID" }[mode];
+    const TITLE = { REPORT: "DISCONNECTION REPORT", TG_NOT_PAID: "TIME GIVEN BUT NOT YET PAID", PAID_NOT_PAID: "PAID AT VISIT BUT NOT ACTUALLY PAID",
+      DISC_NOT_PAID: "DISCONNECTED BUT NOT YET PAID" }[mode];
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
     const money2 = v => v === null || v === undefined ? "" : Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -10549,7 +10567,7 @@ async function downloadDisconnectionReportPdf(mode) {
     doc.text(TITLE, 10, 12);
     doc.setFontSize(8.5);
     const subFilter = $("dashSubstationFilter") && $("dashSubstationFilter").value;
-    doc.text("Visits: " + dmy(from) + " to " + dmy(to) + (subFilter ? "    Substation: " + subFilter : "") +
+    doc.text("Period: " + dmy(from) + " to " + dmy(to) + (subFilter ? "    Substation: " + subFilter : "") +
       (mode === "REPORT" ? "" : "    Payments up to: " + ((getLocalMasterMeta() || {}).report_date || "data on this phone")) +
       "    On: " + shareDateText(new Date().toISOString()), 10, 18);
 
@@ -10577,7 +10595,7 @@ async function downloadDisconnectionReportPdf(mode) {
       addCount("Never paid / Long unpaid", x => !!x.list);
     }
     doc.autoTable({
-      startY: 22, margin: { left: 10, right: 10 },
+      startY: 22, margin: { left: 10, right: 10, bottom: getReportSignature() ? 28 : 10 },
       head: [["Status"].concat(subs, ["Total"])], body: sRows, theme: "grid",
       tableWidth: Math.min(277, 50 + 25 * (subs.length + 1)),
       styles: { fontSize: 8, cellPadding: 1.5, lineColor: [120, 120, 120], lineWidth: 0.1, textColor: [0, 0, 0], halign: "right" },
@@ -10601,11 +10619,12 @@ async function downloadDisconnectionReportPdf(mode) {
       };
     } else {
       head = ["S.No", "Visit Date", "Substation", "Account ID", "Consumer Name", "Father/Husband", "Address", "Mobile No",
-        mode === "TG_NOT_PAID" ? "Committed Date" : "Payment Mode", mode === "TG_NOT_PAID" ? "Final Out (Rs.)" : "Paid Amount (by user)",
+        mode === "TG_NOT_PAID" ? "Committed Date" : mode === "DISC_NOT_PAID" ? "Latitude, Longitude" : "Payment Mode",
+        mode === "PAID_NOT_PAID" ? "Paid Amount (by user)" : "Final Out (Rs.)",
         "Last Pay Date", "Last Pay Amt", "Outstanding Now", "List Category"];
       body = list.map((x, i) => [i + 1, dmy(x.date), x.sub, x.acct, x.name, x.father, x.address, x.mobile,
-        mode === "TG_NOT_PAID" ? (x.committed ? dmy(x.committed) : "") : x.mode,
-        mode === "TG_NOT_PAID" ? money2(x.out) + x.mark : (x.paid === null ? "" : money2(x.paid)),
+        mode === "TG_NOT_PAID" ? (x.committed ? dmy(x.committed) : "") : mode === "DISC_NOT_PAID" ? (x.lat ? x.lat + ", " + x.lng : "") : x.mode,
+        mode === "PAID_NOT_PAID" ? (x.paid === null ? "" : money2(x.paid)) : money2(x.out) + x.mark,
         x.lastPay ? dmy(x.lastPay) : "", x.lastPayAmt || "", x.now === null ? "" : money2(x.now), x.list]);
       colStyles = {
         0: { cellWidth: 8, halign: "right" }, 1: { cellWidth: 16 }, 2: { cellWidth: 18 }, 3: { cellWidth: 18 },
@@ -10615,7 +10634,7 @@ async function downloadDisconnectionReportPdf(mode) {
       };
     }
     doc.autoTable({
-      startY: doc.lastAutoTable.finalY + 6, margin: { left: 10, right: 10 },
+      startY: doc.lastAutoTable.finalY + 6, margin: { left: 10, right: 10, bottom: getReportSignature() ? 28 : 10 },
       head: [head], body: body, theme: "grid",
       styles: { fontSize: 6.8, cellPadding: 1, overflow: "linebreak", valign: "middle", lineColor: [120, 120, 120], lineWidth: 0.1, textColor: [0, 0, 0] },
       headStyles: { fillColor: [21, 101, 192], textColor: 255, fontSize: 6.8, halign: "center" },
@@ -10626,14 +10645,16 @@ async function downloadDisconnectionReportPdf(mode) {
       }
     });
     let y = doc.lastAutoTable.finalY + 5;
-    if (y > doc.internal.pageSize.getHeight() - 14) { doc.addPage(); y = 14; }
+    if (y > doc.internal.pageSize.getHeight() - (getReportSignature() ? 30 : 14)) { doc.addPage(); y = 14; }
     doc.setFontSize(7);
     doc.text("Final Out = outstanding on the visit day (daily billing and payment data)" +
       (marked ? "; * = outstanding as saved at the visit, when the phone's data was more than 2 days old." : ".") +
       (mode === "REPORT" ? "" : "  Not paid = no payment dated on or after the visit day."), 10, y);
 
-    const fileTitle = { REPORT: "Disconnection_Report_", TG_NOT_PAID: "Time_Given_Not_Yet_Paid_", PAID_NOT_PAID: "Paid_At_Visit_Not_Actually_Paid_" }[mode];
+    const fileTitle = { REPORT: "Disconnection_Report_", TG_NOT_PAID: "Time_Given_Not_Yet_Paid_", PAID_NOT_PAID: "Paid_At_Visit_Not_Actually_Paid_",
+      DISC_NOT_PAID: "Disconnected_Not_Yet_Paid_" }[mode];
     const name = fileTitle + from + "_to_" + to + ".pdf";
+    addReportSignature(doc);                                                   /* v20.15 */
     doc.save(name);
     dashReportFile = new File([doc.output("blob")], name, { type: "application/pdf" });
     if ($("dashRepShareBtn")) $("dashRepShareBtn").classList.remove("hidden");
@@ -10650,11 +10671,156 @@ if ($("dashRepPdfBtn")) {
   if ($("dashRepShareBtn")) $("dashRepShareBtn").addEventListener("click", shareDisconnectionReport);
   if ($("dashTgNotPaidBtn")) $("dashTgNotPaidBtn").addEventListener("click", () => downloadDisconnectionReportPdf("TG_NOT_PAID"));
   if ($("dashPaidNotPaidBtn")) $("dashPaidNotPaidBtn").addEventListener("click", () => downloadDisconnectionReportPdf("PAID_NOT_PAID"));
+  if ($("dashDiscNotPaidBtn")) $("dashDiscNotPaidBtn").addEventListener("click", () => downloadDisconnectionReportPdf("DISC_NOT_PAID"));
+  if ($("dashRepTodayBtn")) $("dashRepTodayBtn").addEventListener("click", () => {          /* v20.14 */
+    const d = new Date(), p = x => String(x).padStart(2, "0");
+    const today = d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+    downloadDisconnectionReportPdf("REPORT", today, today);
+  });
   ["dashRepFrom", "dashRepTo"].forEach(id => $(id).addEventListener("focus", dashReportDates, { once: true }));
 }
 
 
 
+
+/* ---------- v20.15: signature on every page of the disconnection report ---------- */
+/* Kept on this phone only (per user): { img: PNG data URL, text: name / designation } */
+function reportSignatureKey() {
+  return "fieldworkReportSignature:" + String(state.userId || "").trim().toLowerCase();
+}
+function getReportSignature() {
+  try { const s = JSON.parse(localStorage.getItem(reportSignatureKey()) || "null"); return s && s.img ? s : null; }
+  catch (e) { return null; }
+}
+function showReportSignatureState() {
+  const s = getReportSignature();
+  if ($("dashSigState")) $("dashSigState").textContent = s ? "Added" + (s.text ? " (" + s.text + ")" : "") : "Not added";
+  if ($("dashSigRemoveBtn")) $("dashSigRemoveBtn").classList.toggle("hidden", !s);
+}
+
+function openSignaturePad() {
+  let box = $("sigOverlay");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "sigOverlay";
+    box.className = "dash-list-overlay";
+    box.innerHTML =
+      '<div class="dash-list-card"><div class="dash-list-head"><b>Signature for reports</b>' +
+      '<button id="sigCloseBtn" type="button" class="secondary">CLOSE</button></div>' +
+      '<div class="dash-mtx-note">Sign inside the box with your finger / touchpad, or upload a photo of your signature. ' +
+      "It is kept on this phone and printed at the bottom of every page of the report.</div>" +
+      '<canvas id="sigCanvas" width="600" height="220" class="sig-canvas"></canvas>' +
+      '<div class="dash-list-btns"><button id="sigClearBtn" type="button" class="secondary">CLEAR</button>' +
+      '<label class="sig-upload secondary">UPLOAD SIGNATURE<input id="sigFile" type="file" accept="image/*" hidden></label></div>' +
+      '<label for="sigText">Name / designation under the signature (optional)</label>' +
+      '<input id="sigText" maxlength="60" placeholder="e.g. SDO, Kuthond">' +
+      '<div id="sigStatus" class="status"></div>' +
+      '<button id="sigSaveBtn" type="button" class="primary">SAVE SIGNATURE</button></div>';
+    document.body.appendChild(box);
+    const cv = $("sigCanvas"), ctx = cv.getContext("2d");
+    let drawing = false, drawn = false;
+    const pos = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
+    cv.addEventListener("pointerdown", e => { drawing = true; drawn = true; cv.setPointerCapture(e.pointerId); const [x, y] = pos(e); ctx.beginPath(); ctx.moveTo(x, y); e.preventDefault(); });
+    cv.addEventListener("pointermove", e => { if (!drawing) return; const [x, y] = pos(e); ctx.lineTo(x, y); ctx.stroke(); e.preventDefault(); });
+    ["pointerup", "pointercancel", "pointerleave"].forEach(ev => cv.addEventListener(ev, () => { drawing = false; }));
+    const reset = () => { ctx.clearRect(0, 0, cv.width, cv.height); ctx.lineWidth = 4; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#0b2a6f"; drawn = false; };
+    box._reset = reset;
+    box._isDrawn = () => drawn;
+    box._setDrawn = v => { drawn = v; };
+    $("sigClearBtn").addEventListener("click", reset);
+    $("sigCloseBtn").addEventListener("click", () => { box.classList.add("hidden"); document.body.style.overflow = ""; });
+    $("sigFile").addEventListener("change", () => {
+      const file = $("sigFile").files && $("sigFile").files[0];
+      if (!file) return;
+      const img = new Image();
+      img.onload = () => {
+        reset();
+        const k = Math.min(cv.width / img.width, cv.height / img.height);
+        const w = img.width * k, h = img.height * k;
+        ctx.drawImage(img, (cv.width - w) / 2, (cv.height - h) / 2, w, h);
+        /* make a white / light background transparent, so only the ink prints */
+        const d = ctx.getImageData(0, 0, cv.width, cv.height);
+        for (let i = 0; i < d.data.length; i += 4) {
+          if (d.data[i] > 200 && d.data[i + 1] > 200 && d.data[i + 2] > 200) d.data[i + 3] = 0;
+        }
+        ctx.putImageData(d, 0, 0);
+        box._setDrawn(true);
+        URL.revokeObjectURL(img.src);
+      };
+      img.onerror = () => setStatus("sigStatus", "This file could not be read as a picture.", "error");
+      img.src = URL.createObjectURL(file);
+      $("sigFile").value = "";
+    });
+    $("sigSaveBtn").addEventListener("click", () => {
+      if (!box._isDrawn()) return setStatus("sigStatus", "Sign in the box or upload a signature first.", "error");
+      /* crop to the ink */
+      const d = ctx.getImageData(0, 0, cv.width, cv.height);
+      let x0 = cv.width, y0 = cv.height, x1 = 0, y1 = 0;
+      for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
+        if (d.data[(y * cv.width + x) * 4 + 3] > 20) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      }
+      if (x1 <= x0 || y1 <= y0) return setStatus("sigStatus", "Sign in the box or upload a signature first.", "error");
+      const out = document.createElement("canvas");
+      out.width = x1 - x0 + 8; out.height = y1 - y0 + 8;
+      out.getContext("2d").drawImage(cv, x0 - 4, y0 - 4, out.width, out.height, 0, 0, out.width, out.height);
+      try {
+        localStorage.setItem(reportSignatureKey(), JSON.stringify({ img: out.toDataURL("image/png"), text: $("sigText").value.trim(),
+          w: out.width, h: out.height }));
+      } catch (e) {
+        return setStatus("sigStatus", "Could not keep the signature on this phone (storage full or blocked).", "error");
+      }
+      showReportSignatureState();
+      setStatus("dashRepStatus", "Signature saved. It will be printed on every page of the reports.", "ok");
+      $("sigCloseBtn").click();
+    });
+  }
+  box._reset();
+  const s = getReportSignature();
+  $("sigText").value = s ? s.text || "" : "";
+  if (s) {
+    const img = new Image();
+    img.onload = () => {
+      const cv = $("sigCanvas"), k = Math.min(cv.width / img.width, cv.height / img.height, 1);
+      cv.getContext("2d").drawImage(img, (cv.width - img.width * k) / 2, (cv.height - img.height * k) / 2, img.width * k, img.height * k);
+      box._setDrawn(true);
+    };
+    img.src = s.img;
+  }
+  setStatus("sigStatus", "");
+  box.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+
+/* bottom-right of every page, left of the page number */
+function addReportSignature(doc) {
+  const s = getReportSignature();
+  if (!s) return;
+  const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+  const maxW = 45, maxH = 15;
+  const ratio = (s.w && s.h) ? s.w / s.h : 3;
+  let w = maxW, h = w / ratio;
+  if (h > maxH) { h = maxH; w = h * ratio; }
+  const right = W - 32, x = right - w, base = H - 9;
+  for (let p = 1; p <= doc.internal.getNumberOfPages(); p++) {
+    doc.setPage(p);
+    try { doc.addImage(s.img, "PNG", x, base - h, w, h); } catch (e) { return; }
+    doc.setDrawColor(120, 120, 120);
+    doc.setLineWidth(0.2);
+    doc.line(right - maxW, base + 0.5, right, base + 0.5);
+    doc.setFontSize(7);
+    doc.setTextColor(0, 0, 0);
+    doc.text(s.text || "Signature", right, base + 3.5, { align: "right" });
+  }
+}
+
+if ($("dashSigBtn")) {
+  $("dashSigBtn").addEventListener("click", openSignaturePad);
+  $("dashSigRemoveBtn").addEventListener("click", () => {
+    if (!confirm("Remove the signature from this phone?")) return;
+    try { localStorage.removeItem(reportSignatureKey()); } catch (e) {}
+    showReportSignatureState();
+  });
+}
 
 async function loadDashboard() {
   dashboardHasLoaded = true;
@@ -11940,6 +12106,20 @@ function dlSwitchNplMode(mode) {
   dlRefreshCascade(null);
   dlFixEmptyRestoredLists();
   dlUpdateNplTitle();
+  dlNplEmptyNotice();
+}
+
+/* v20.13: the office list tags reach the phone with the Fieldwork Master Tool's update */
+function dlNplEmptyNotice() {
+  if (!dlOptions || !$("dlNpl")) return;
+  const mode = $("dlNpl").value;
+  if (mode === "ALL") return setStatus("dlNplNote", "");
+  const n = dlOptions.nplCounts || {};
+  const count = mode === "BOTH" ? (n["NEVER PAID"] || 0) + (n["LONG UNPAID"] || 0) : (n[mode] || 0);
+  if (!count) setStatus("dlNplNote", "No consumer of this office list is on this phone yet, so the filters below are empty. " +
+    "The list comes with a daily update after the office files are put in the Fieldwork Master Tool (data\\lists folder) " +
+    "and the tool is run. Then tap CHECK FOR MASTER DATA UPDATE on the home page.", "error");
+  else setStatus("dlNplNote", count.toLocaleString("en-IN") + " consumers of this office list on this phone.", "ok");
 }
 
 function dlUpdateNplTitle() {

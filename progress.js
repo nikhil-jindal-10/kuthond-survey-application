@@ -110,7 +110,7 @@
     const day = Math.min(Number(report.slice(8, 10)), daysIn(masterMonth));
     return {
       key: [state.activeMasterStore, state.masterCount, meta.base_id || "", meta.updates_seq || 0,
-        meta.master_file_id || "", meta.report_date || "", "v20.12"].join("|"),
+        meta.master_file_id || "", meta.report_date || "", "v20.14"].join("|"),
       report: report,
       billingMonth: billingMonth,
       monthStart: billingMonth + "-01",
@@ -131,11 +131,14 @@
     payBand: [0, 0, 0, 0, 0, 0], payBandAmt: [0, 0, 0, 0, 0, 0],     /* v20.11: paid this month by load */
     def: 0, defAmt: 0, defBand: [0, 0, 0, 0, 0, 0], defBandAmt: [0, 0, 0, 0, 0, 0],   /* v20.12: defaulters */
     prevAss: 0, curAss: 0, assKnown: 0,                               /* v20.11: current assessment */
+    prevAssBand: [0, 0, 0, 0, 0, 0], curAssBand: [0, 0, 0, 0, 0, 0],   /* v20.14: by load */
+    revBand: [0, 0, 0, 0, 0, 0], lmBand: [0, 0, 0, 0, 0, 0], billedBand: [0, 0, 0, 0, 0, 0],
     never: 0, neverAmt: 0,
     ub: [0, 0, 0, 0, 0, 0], cats: {}, remark: {}, basis: {},
     mrNow: {}, mrPrev: {}, prevKnown: 0       /* v20.10: billed this month by MR source / last month's MR source */
   });
-  const newCat = () => ({ billable: 0, paid: 0, rev: 0, lmPaid: 0, lmPaidDay: 0, unbilled: 0, unpaid: 0, unpaidAmt: 0, def: 0, defAmt: 0 });
+  const newCat = () => ({ billable: 0, paid: 0, rev: 0, lmPaid: 0, lmPaidDay: 0, unbilled: 0, unpaid: 0, unpaidAmt: 0, def: 0, defAmt: 0,
+    prevAss: 0, curAss: 0, lmTotal: 0, billed: 0 });
 
   let data = null;          /* { key, ctx, cells: Map, units: [[sdo,sub,feeder,village]] } */
   let busy = false;
@@ -193,6 +196,12 @@
       f.nplAmt = f.nplPaid ? (f.payInMonth ? (f.thisMonth || f.payAmt) : f.payAmt) : 0;
       f.nplOut = num(c.NPL_OUTSTANDING);
       f.nplDate = parseMasterDate(c.NPL_LIST_DATE) || "";
+      /* v20.13: bands of the connection year (DOC) and of the outstanding now */
+      const doc = parseMasterDate(c.DOC) || "";
+      const y = Number(doc.slice(0, 4)) || 0;
+      f.nplDocBand = !y ? 6 : y >= 2026 ? 0 : y === 2025 ? 1 : y === 2024 ? 2 : y === 2023 ? 3 : y >= 2021 ? 4 : 5;
+      const o = f.out;
+      f.nplAmtBand = o <= 5000 ? 0 : o <= 10000 ? 1 : o <= 25000 ? 2 : o <= 50000 ? 3 : o <= 100000 ? 4 : o <= 300000 ? 5 : 6;
     }
     return f;
   }
@@ -209,7 +218,8 @@
         if (!billable && !onList) continue;                       /* billable consumers only */
         const f = facts(c, ctx);
         if (onList) npl.push({ acct: f.acct, type: f.npl, u: f.u, grp: f.grp, meter: f.meter,
-          paid: f.nplPaid, amt: f.nplAmt, listOut: f.nplOut, out: f.out, date: f.nplDate });
+          paid: f.nplPaid, amt: f.nplAmt, listOut: f.nplOut, out: f.out, date: f.nplDate,
+          docBand: f.nplDocBand, amtBand: f.nplAmtBand });
         if (!billable) continue;
         const uKey = f.u.join("\u0001");
         if (!units.has(uKey)) units.set(uKey, f.u);
@@ -223,6 +233,11 @@
         ce.rev += f.thisMonth;
         if (f.paid) { m.payBand[f.loadBand]++; m.payBandAmt[f.loadBand] += f.thisMonth; }
         if (f.assKnown) { m.assKnown++; m.prevAss += f.prevAss; m.curAss += f.curAss; }
+        /* v20.14 */
+        ce.prevAss += f.prevAss; ce.curAss += f.curAss; ce.lmTotal += f.lmTotal; if (f.billed) ce.billed++;
+        m.prevAssBand[f.loadBand] += f.prevAss; m.curAssBand[f.loadBand] += f.curAss;
+        m.revBand[f.loadBand] += f.thisMonth; m.lmBand[f.loadBand] += f.lmTotal; if (f.billed) m.billedBand[f.loadBand]++;
+
         if (f.payDay >= 0) { m.dayAmt[f.payDay] += f.payAmt; m.dayCnt[f.payDay]++; }
         if (f.lmDayIdx >= 0) { m.lmDayAmt[f.lmDayIdx] += f.mAmt; m.lmDayCnt[f.lmDayIdx]++; }
         if (f.lmInDay) m.lmDay += f.mAmt;
@@ -505,18 +520,29 @@
   /* v20.11: current assessment and collection efficiency */
   function assessmentHtml(col, ctx) {
     if (!col.total.assKnown) return note("The assessment comes with the next daily update (Fieldwork Master Tool).");
-    const t2 = unitRows(col, (m, uq) => [RS(m.prevAss), RS(m.lmTotal), PCT(m.lmTotal, m.prevAss),
-      RS(m.curAss), L(m.billed, Object.assign({ m: "billed" }, uq)), RS(m.rev), PCT(m.rev, m.prevAss)]);
-    return table([LEVEL_LABEL[sel.level],
-      monthName(ctx.masterMonth) + " assessment", monthName(ctx.masterMonth) + " collected", monthName(ctx.masterMonth) + " efficiency",
-      monthName(ctx.monthStart.slice(0, 7)) + " assessed so far", "Billed so far", monthName(ctx.monthStart.slice(0, 7)) + " collected",
-      monthName(ctx.monthStart.slice(0, 7)) + " efficiency so far (" + monthName(ctx.monthStart.slice(0, 7)) + " collected ÷ " +
-        monthName(ctx.masterMonth) + " assessment)"],
-      t2.rows, t2.total) +
-      note("Assessment = current assessment of the bill (" + monthName(ctx.masterMonth) + ": from the master; " +
-        monthName(ctx.monthStart.slice(0, 7)) + ": from the billed report, only consumers billed so far). " +
-        "Efficiency = amount collected ÷ assessment.");
+    const cur = monthName(ctx.monthStart.slice(0, 7)), prev = monthName(ctx.masterMonth);
+    /* v20.14: this month first, then last month */
+    const head = [cur + " assessed so far", "Billed so far", cur + " collected",
+      cur + " efficiency so far (" + cur + " collected ÷ " + cur + " assessment)",
+      prev + " assessment", prev + " collected", prev + " efficiency"];
+    const cells = (curAss, billedLink, rev, prevAss, lm) => [RS(curAss), billedLink, RS(rev), PCT(rev, curAss), RS(prevAss), RS(lm), PCT(lm, prevAss)];
+    const t2 = unitRows(col, (m, uq) => cells(m.curAss, L(m.billed, Object.assign({ m: "billed" }, uq)), m.rev, m.prevAss, m.lmTotal));
+    const tot = col.total;
+    const total = ["Total"].concat(cells(tot.curAss, L(tot.billed, { m: "billed" }), tot.rev, tot.prevAss, tot.lmTotal));
+    const cats = CAT_ORDER.filter(k => tot.cats[k] && tot.cats[k].billable).map(k => {
+      const c = tot.cats[k];
+      return [catLabel(k)].concat(cells(c.curAss, L(c.billed, { m: "billed", cat: k }), c.rev, c.prevAss, c.lmTotal));
+    });
+    const bands = UNBILLED_BANDS.map((b, i) => [b + " kW/kVA/BHP"].concat(cells(tot.curAssBand[i],
+      L(tot.billedBand[i], { m: "billedBand", band: i }), tot.revBand[i], tot.prevAssBand[i], tot.lmBand[i])));
+    return table([LEVEL_LABEL[sel.level]].concat(head), t2.rows, t2.total) +
+      note("By tariff category:") + table(["Category"].concat(head), cats, total) +
+      note("By load:") + table(["Load"].concat(head), bands, total) +
+      note("Assessment = current assessment of the bill (" + prev + ": from the master; " +
+        cur + ": from the billed report, only consumers billed so far). Efficiency = amount collected ÷ assessment.");
   }
+
+
 
   /* v20.11: office Never Paid / Long Unpaid lists - paid after the list, disconnected, time given */
   function nplLatestVisit() {
@@ -528,6 +554,9 @@
     return byAcct;
   }
   let nplVisits = {};
+  /* v20.13 */
+  const NPL_DOC_BANDS = ["2026", "2025", "2024", "2023", "2022 – 2021", "2020 and before", "DOC not known"];
+  const NPL_AMT_BANDS = ["Up to ₹5K", "₹5K – 10K", "₹10K – 25K", "₹25K – 50K", "₹50K – 1 lakh", "₹1 lakh – 3 lakh", "Above ₹3 lakh"];
   /* v20.12: latest disconnection visit of an account, for the office list lists */
   const VISIT_STATUS_TEXT = { DISCONNECTED: "Disconnected", "TIME GIVEN FOR PAYMENT": "Time given", PAID: "Paid at visit" };
   function nplVisit(acct) {
@@ -579,6 +608,23 @@
         [escapeHtml(label(k))].concat(row(byUnit.get(k), { lvl: levelIdx, unit: k })));
       html += note(name + ":") + table([LEVEL_LABEL[sel.level], "On list", "List outstanding", "Paid", "Amount paid", "Paid %",
         "Disconnected", "Time given", "Not paid yet", "Outstanding now"], rows, ["Total"].concat(row(total, {})));
+
+      /* v20.13: the same list by year of connection (DOC) and by outstanding now */
+      const ofType = list.filter(x => x.type === type);
+      const bandTable = (labels, field, head) => {
+        const bt = labels.map(() => ({ n: 0, paid: 0, notPaid: 0, out: 0 }));
+        ofType.forEach(x => {
+          const b = bt[x[field]];
+          if (!b) return;
+          b.n++;
+          if (x.paid) b.paid++; else { b.notPaid++; b.out += Math.max(x.out, 0); }
+        });
+        const q = (i, st) => ({ m: "npl", type: type, st: st, [field]: i });
+        const bRows = labels.map((lb, i) => [lb, L(bt[i].n, q(i, "all")), L(bt[i].paid, q(i, "paid")), PCT(bt[i].paid, bt[i].n),
+          L(bt[i].notPaid, q(i, "notPaid")), RS(bt[i].out)]).filter((r, i) => bt[i].n);
+        return note(name + " by " + head + ":") + table([head, "On list", "Paid", "Paid %", "Not paid yet", "Outstanding now (not paid)"], bRows, null);
+      };
+      html += bandTable(NPL_DOC_BANDS, "docBand", "connection year (DOC)") + bandTable(NPL_AMT_BANDS, "amtBand", "outstanding now");
     });
     const d = Array.from(dates).sort().pop();
     html += note("Office list" + (d ? " of " + formatListDate(d) : "") + " (all connection statuses). Paid = a payment after the list " +
@@ -1026,6 +1072,7 @@
       case "day": return f.payDay === q.day;
       case "days": return f.payInMonth && f.pay >= q.from;
       case "billed": return f.billed;
+      case "billedBand": return f.billed && f.loadBand === q.band;          /* v20.14 */
       case "unbilled": return !f.billed;
       case "ubBand": return f.ubBand === q.band;
       case "remark": return f.billed && f.remark === q.code;
@@ -1039,6 +1086,8 @@
       case "payBand": return f.paid && f.loadBand === q.band;                  /* v20.11 */
       case "npl": {
         if (f.npl !== q.type) return false;
+        if (q.docBand !== undefined && f.nplDocBand !== q.docBand) return false;      /* v20.13 */
+        if (q.amtBand !== undefined && f.nplAmtBand !== q.amtBand) return false;
         const st = nplVisits[f.acct] ? nplVisits[f.acct].status : "";
         if (q.st === "paid") return f.nplPaid;
         if (q.st === "notPaid") return !f.nplPaid;
