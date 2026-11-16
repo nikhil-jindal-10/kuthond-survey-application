@@ -12493,6 +12493,349 @@ const APP_VERSION = (() => {
  */
 const MASTER_READ_CHUNK = 5000;
 
+/*
+ * v20.16: the old way unpacked the whole Excel file in memory
+ * (about 1.5 GB for a 2-lakh-row master) and Chrome closed the
+ * page ("Aw, Snap!") on phones with less memory. Now the sheet is
+ * unpacked and read piece by piece (about 4 times less memory,
+ * 4 times faster). The old way is kept only for very old browsers.
+ */
+/*
+ * Self-contained: it is also copied into the background worker
+ * as text, so it must not use anything from outside itself.
+ */
+async function masterStreamReader(bytes, chunkSize) {
+  if (typeof DecompressionStream !== "function" || typeof ReadableStream !== "function") {
+    throw new Error("NO_STREAM_SUPPORT");
+  }
+  const u32 = (p) => (bytes[p] | (bytes[p + 1] << 8) | (bytes[p + 2] << 16)) + bytes[p + 3] * 16777216;
+  const u16 = (p) => bytes[p] | (bytes[p + 1] << 8);
+  const u64 = (p) => u32(p) + u32(p + 4) * 4294967296;
+
+  /* ---- zip directory ---- */
+  let eocd = -1;
+  for (let p = bytes.length - 22; p >= Math.max(0, bytes.length - 65558); p--) {
+    if (u32(p) === 0x06054b50) { eocd = p; break; }
+  }
+  if (eocd < 0) throw new Error("Master Data file is not a valid Excel (.xlsx) file.");
+  let count = u16(eocd + 10);
+  let dirOffset = u32(eocd + 16);
+  if (dirOffset === 0xFFFFFFFF || count === 0xFFFF) {
+    const loc = eocd - 20;
+    if (loc >= 0 && u32(loc) === 0x07064b50) {
+      const z = u64(loc + 8);
+      if (u32(z) === 0x06064b50) { count = u64(z + 32); dirOffset = u64(z + 48); }
+    }
+  }
+  const files = {};
+  let p = dirOffset;
+  for (let i = 0; i < count && u32(p) === 0x02014b50; i++) {
+    const method = u16(p + 10);
+    const crc = u32(p + 16);
+    let comp = u32(p + 20), size = u32(p + 24), local = u32(p + 42);
+    const nameLen = u16(p + 28), extraLen = u16(p + 30), commentLen = u16(p + 32);
+    const name = new TextDecoder().decode(bytes.subarray(p + 46, p + 46 + nameLen));
+    let e = p + 46 + nameLen;
+    const eEnd = e + extraLen;
+    while (e + 4 <= eEnd) {
+      const id = u16(e), len = u16(e + 2);
+      if (id === 1) {
+        let q = e + 4;
+        if (size === 0xFFFFFFFF) { size = u64(q); q += 8; }
+        if (comp === 0xFFFFFFFF) { comp = u64(q); q += 8; }
+        if (local === 0xFFFFFFFF) { local = u64(q); q += 8; }
+      }
+      e += 4 + len;
+    }
+    files[name.replace(/^\/+/, "").toLowerCase()] = { method, crc, comp, size, local };
+    p = eEnd + commentLen;
+  }
+
+  /* ---- unpack one file as a stream of bytes ---- */
+  const byteStream = (f) => {
+    if (u32(f.local) !== 0x04034b50) throw new Error("Master Data file is damaged.");
+    const start = f.local + 30 + u16(f.local + 26) + u16(f.local + 28);
+    const end = start + f.comp;
+    if (end > bytes.length) throw new Error("Master Data file is incomplete.");
+    let pos = start;
+    let head = null, tail = null;
+    if (f.method === 8) {
+      /* a gzip wrapper around the raw zip data: works on every Chrome with streams */
+      head = new Uint8Array([0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255]);
+      tail = new Uint8Array(8);
+      const t = [f.crc, f.size % 4294967296];
+      for (let k = 0; k < 2; k++) for (let b = 0; b < 4; b++) tail[k * 4 + b] = Math.floor(t[k] / Math.pow(256, b)) & 255;
+    } else if (f.method !== 0) {
+      throw new Error("NO_STREAM_SUPPORT");
+    }
+    const raw = new ReadableStream({
+      pull(ctrl) {
+        if (head) { ctrl.enqueue(head); head = null; return; }
+        if (pos < end) {
+          const n = Math.min(65536, end - pos);
+          ctrl.enqueue(bytes.slice(pos, pos + n));
+          pos += n;
+          return;
+        }
+        if (tail) { ctrl.enqueue(tail); tail = null; return; }
+        ctrl.close();
+      }
+    });
+    return f.method === 8 ? raw.pipeThrough(new DecompressionStream("gzip")) : raw;
+  };
+
+  const readWhole = async (name) => {
+    const f = files[name.toLowerCase()];
+    if (!f) return "";
+    const rd = byteStream(f).getReader();
+    const dec = new TextDecoder("utf-8");
+    let out = "";
+    for (;;) {
+      const r = await rd.read();
+      if (r.done) break;
+      out += dec.decode(r.value, { stream: true });
+    }
+    return out + dec.decode();
+  };
+
+  const unxml = (s) => {
+    if (s.indexOf("&") >= 0) {
+      s = s.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos);/g, (m, g) =>
+        g === "amp" ? "&" : g === "lt" ? "<" : g === "gt" ? ">" : g === "quot" ? '"' : g === "apos" ? "'" :
+        String.fromCodePoint(g[1] === "x" ? parseInt(g.slice(2), 16) : parseInt(g.slice(1), 10)));
+    }
+    if (s.indexOf("_x") >= 0) {
+      s = s.replace(/_x([0-9a-fA-F]{4})_/g, (m, h) => String.fromCharCode(parseInt(h, 16)));
+    }
+    return s;
+  };
+  const richText = (inner) => {
+    inner = inner.replace(/<rPh\b[\s\S]*?<\/rPh>/g, "");
+    let out = "";
+    const re = /<t\b[^>]*?(?:\/>|>([\s\S]*?)<\/t>)/g;
+    let m;
+    while ((m = re.exec(inner))) out += m[1] || "";
+    return unxml(out);
+  };
+
+  /* ---- first sheet ---- */
+  const wbXml = await readWhole("xl/workbook.xml");
+  const relsXml = await readWhole("xl/_rels/workbook.xml.rels");
+  let sheetPath = "xl/worksheets/sheet1.xml";
+  const firstSheet = /<sheet\b[^>]*?\br:id="([^"]+)"/.exec(wbXml) || /<sheet\b[^>]*?\bid="([^"]+)"/.exec(wbXml);
+  if (firstSheet) {
+    const relRe = /<Relationship\b([^>]*)>/g;
+    let m;
+    while ((m = relRe.exec(relsXml))) {
+      const idm = /\bId="([^"]+)"/.exec(m[1]);
+      const tm = /\bTarget="([^"]+)"/.exec(m[1]);
+      if (idm && tm && idm[1] === firstSheet[1]) {
+        const t = tm[1];
+        sheetPath = t.charAt(0) === "/" ? t.slice(1) : "xl/" + t.replace(/^\.\//, "");
+        break;
+      }
+    }
+  }
+  const sheetFile = files[sheetPath.toLowerCase()];
+  if (!sheetFile) throw new Error("Consumer master XLSX contains no worksheet.");
+
+  /* ---- shared texts (the Master Tool does not use them, Excel does) ---- */
+  const sst = [];
+  const sstXml = await readWhole("xl/sharedStrings.xml");
+  if (sstXml) {
+    const re = /<si\b[^>]*?(?:\/>|>([\s\S]*?)<\/si>)/g;
+    let m;
+    while ((m = re.exec(sstXml))) sst.push(m[1] ? richText(m[1]) : "");
+  }
+
+  /* ---- which styles are dates ---- */
+  const dateStyle = [];
+  const stylesXml = await readWhole("xl/styles.xml");
+  if (stylesXml) {
+    const custom = {};
+    const nf = /<numFmt\b([^>]*)>/g;
+    let m;
+    while ((m = nf.exec(stylesXml))) {
+      const id = /\bnumFmtId="(\d+)"/.exec(m[1]);
+      const code = /\bformatCode="([^"]*)"/.exec(m[1]);
+      if (id && code) {
+        const c = unxml(code[1]).replace(/"[^"]*"|\[[^\]]*\]|\\./g, "");
+        custom[id[1]] = /[dmyhsDMYHS]/.test(c) && !/^General$/i.test(c);
+      }
+    }
+    const xfs = /<cellXfs\b[\s\S]*?<\/cellXfs>/.exec(stylesXml);
+    if (xfs) {
+      const xf = /<xf\b([^>]*)>/g;
+      while ((m = xf.exec(xfs[0]))) {
+        const idm = /\bnumFmtId="(\d+)"/.exec(m[1]);
+        const id = idm ? +idm[1] : 0;
+        dateStyle.push((id >= 14 && id <= 22) || (id >= 27 && id <= 36) || (id >= 45 && id <= 47) || (id >= 50 && id <= 58) || custom[id] === true);
+      }
+    }
+  }
+  /* same as the Excel library: local time, corrected for old time-zone rules */
+  const dBase = new Date(1899, 11, 30, 0, 0, 0);
+  const nowOffset = new Date().getTimezoneOffset();
+  const dStart = dBase.getTime() + (nowOffset - dBase.getTimezoneOffset()) * 60000;
+  const excelDate = (v) => {
+    const d = new Date(v * 86400000 + dStart);
+    if (d.getTimezoneOffset() !== nowOffset) d.setTime(d.getTime() + (d.getTimezoneOffset() - nowOffset) * 60000);
+    return d;
+  };
+
+  const colIndex = (ref) => {
+    let n = 0;
+    for (let i = 0; i < ref.length; i++) {
+      const c = ref.charCodeAt(i);
+      if (c >= 65 && c <= 90) n = n * 26 + (c - 64);
+      else if (c >= 97 && c <= 122) n = n * 26 + (c - 96);
+      else break;
+    }
+    return n - 1;
+  };
+
+  /* ---- read the sheet piece by piece ---- */
+  const sheetReader = byteStream(sheetFile).getReader();
+  const dec = new TextDecoder("utf-8");
+  let text = "";
+  let ended = false;
+  let total = 0, firstCol = 0, width = 0, gotDim = false;
+  let pending = [];
+  let rowsSeen = 0, bytesSeen = 0;
+
+  const rowRe = /<row\b[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g;
+  const cellRe = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
+  const attrRe = /\b(r|t|s)="([^"]*)"/g;
+
+  const parseRows = (part) => {
+    rowRe.lastIndex = 0;
+    let rm;
+    while ((rm = rowRe.exec(part))) {
+      const inner = rm[1];
+      if (!inner) continue;
+      const row = width ? new Array(width).fill("") : [];
+      let any = false, next = 0;
+      cellRe.lastIndex = 0;
+      let cm;
+      while ((cm = cellRe.exec(inner))) {
+        const body = cm[2];
+        let ref = "", type = "n", style = 0, am;
+        attrRe.lastIndex = 0;
+        while ((am = attrRe.exec(cm[1]))) {
+          if (am[1] === "r") ref = am[2];
+          else if (am[1] === "t") type = am[2];
+          else style = +am[2] || 0;
+        }
+        const col = (ref ? colIndex(ref) : next) - firstCol;
+        next = col + firstCol + 1;
+        if (!body || col < 0) continue;
+        let val;
+        if (type === "inlineStr") {
+          const is = /<is>([\s\S]*?)<\/is>/.exec(body);
+          if (!is) continue;
+          val = richText(is[1]);
+        } else {
+          const vm = /<v>([\s\S]*?)<\/v>/.exec(body);
+          if (!vm) {
+            const is = type === "str" ? null : /<is>([\s\S]*?)<\/is>/.exec(body);
+            if (!is) continue;
+            val = richText(is[1]);
+          } else {
+            const v = vm[1];
+            if (type === "s") val = sst[+v] !== undefined ? sst[+v] : "";
+            else if (type === "str") val = unxml(v);
+            else if (type === "b") val = v === "1" || v === "true";
+            else if (type === "e") val = "";
+            else if (type === "d") val = new Date(unxml(v));
+            else {
+              val = parseFloat(v);
+              if (dateStyle[style] && isFinite(val)) val = excelDate(val);
+            }
+          }
+        }
+        while (row.length < col) row.push("");
+        row[col] = val;
+        any = true;
+      }
+      if (!any) continue;
+      if (!width) width = row.length;            /* no size in the file: use the header width */
+      while (row.length < width) row.push("");
+      pending.push(row);
+      rowsSeen++;
+    }
+  };
+
+  const fill = async () => {
+    while (!ended && pending.length < chunkSize) {
+      const r = await sheetReader.read();
+      if (r.done) {
+        text += dec.decode();
+        ended = true;
+      } else {
+        text += dec.decode(r.value, { stream: true });
+        bytesSeen += r.value.length;
+      }
+      if (!gotDim) {
+        const sd = text.indexOf("<sheetData");
+        if (sd >= 0 || ended) {
+          gotDim = true;
+          const dm = /<dimension\b[^>]*?\bref="([A-Za-z]+)(\d+)(?::([A-Za-z]+)(\d+))?"/.exec(text);
+          if (dm) {
+            firstCol = colIndex(dm[1]);
+            width = colIndex(dm[3] || dm[1]) - firstCol + 1;
+            total = (+(dm[4] || dm[2])) - (+dm[2]) + 1;
+            if (width > 16384 || width < 1) width = 0;
+          }
+        } else {
+          continue;
+        }
+      }
+      const endData = text.indexOf("</sheetData>");
+      let cut;
+      if (endData >= 0) {
+        cut = endData;
+        ended = true;
+      } else if (ended) {
+        cut = text.length;
+      } else {
+        const last = text.lastIndexOf("</row>");
+        if (last < 0) continue;
+        cut = last + 6;
+      }
+      parseRows(text.slice(0, cut));
+      text = ended ? "" : text.slice(cut);
+    }
+    if (ended) {
+      try { sheetReader.cancel(); } catch (e) {}
+      bytes = null;
+    }
+  };
+
+  await fill();
+  if (!total) {
+    /* no size in the file: estimate the row count, only for the % shown */
+    total = ended || !bytesSeen ? pending.length : Math.round(rowsSeen * sheetFile.size / bytesSeen);
+  }
+
+  return {
+    total,
+    next: async () => {
+      await fill();
+      const rows = pending.length > chunkSize ? pending.splice(0, chunkSize) : pending;
+      if (rows === pending) pending = [];
+      return { rows, done: ended && pending.length === 0 };
+    },
+    close: () => {
+      pending = [];
+      text = "";
+      if (!ended) { ended = true; try { sheetReader.cancel(); } catch (e) {} }
+      bytes = null;
+    }
+  };
+}
+
+
+
 function masterRowsFromArray(rows) {
   let pos = 0;
   return {
@@ -12507,11 +12850,16 @@ function masterRowsFromArray(rows) {
   };
 }
 
-function masterRowsOnThisThread(buffer) {
+async function masterRowsOnThisThread(buffer) {
+  try {
+    return await masterStreamReader(buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer), MASTER_READ_CHUNK);
+  } catch (e) {
+    console.warn("Stream reading not possible, using the full Excel reader:", e);
+  }
   if (typeof XLSX === "undefined") {
     throw new Error("Excel library is not loaded. Please check xlsx.full.min.js.");
   }
-  let workbook = XLSX.read(buffer, { type: "array", cellDates: true, dense: true });
+  let workbook = XLSX.read(buffer, { type: "array", cellDates: true, dense: true, cellText: false, cellHTML: false, cellNF: false, cellStyles: false });
   const ws = workbook.Sheets[workbook.SheetNames[0]];
   if (!ws) throw new Error("Consumer master XLSX contains no worksheet.");
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
@@ -12524,19 +12872,33 @@ async function openMasterRowReader(buffer) {
   const xlsxUrl = tag && tag.src ? tag.src : new URL("xlsx.full.min.js", document.baseURI).href;
 
   const code =
-    "importScripts(" + JSON.stringify(xlsxUrl) + ");\n" +
-    "let rows = null, pos = 0;\n" +
-    "onmessage = e => {\n" +
+    "const masterStreamReader = " + masterStreamReader.toString() + ";\n" +
+    "let rows = null, pos = 0, stream = null;\n" +
+    "onmessage = async e => {\n" +
     "  const m = e.data;\n" +
     "  try {\n" +
     "    if (m.type === 'parse') {\n" +
-    "      let wb = XLSX.read(new Uint8Array(m.buffer), { type: 'array', cellDates: true, dense: true });\n" +
+    "      try {\n" +
+    "        stream = await masterStreamReader(new Uint8Array(m.buffer), " + MASTER_READ_CHUNK + ");\n" +
+    "        postMessage({ type: 'ready', total: stream.total });\n" +
+    "        return;\n" +
+    "      } catch (err) {\n" +
+    "        stream = null;\n" +
+    "        if (String(err && err.message) !== 'NO_STREAM_SUPPORT') throw err;\n" +
+    "      }\n" +
+    "      importScripts(" + JSON.stringify(xlsxUrl) + ");\n" +
+    "      let wb = XLSX.read(new Uint8Array(m.buffer), { type: 'array', cellDates: true, dense: true, cellText: false, cellHTML: false, cellNF: false, cellStyles: false });\n" +
     "      const ws = wb.Sheets[wb.SheetNames[0]];\n" +
     "      if (!ws) throw new Error('Consumer master XLSX contains no worksheet.');\n" +
     "      rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });\n" +
     "      wb = null;\n" +
     "      postMessage({ type: 'ready', total: rows.length });\n" +
     "    } else if (m.type === 'next') {\n" +
+    "      if (stream) {\n" +
+    "        const r = await stream.next();\n" +
+    "        postMessage({ type: 'rows', rows: r.rows, done: r.done });\n" +
+    "        return;\n" +
+    "      }\n" +
     "      const part = rows.slice(pos, pos + " + MASTER_READ_CHUNK + ");\n" +
     "      for (let i = pos; i < pos + part.length; i++) rows[i] = null;\n" +
     "      pos += part.length;\n" +

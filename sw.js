@@ -8,7 +8,7 @@
  * and show it on the open after that.
  */
 
-const CACHE_VERSION = "v20.15";
+const CACHE_VERSION = "v20.16";
 const CACHE_PREFIX = "fieldwork-pwa-";
 const CACHE = CACHE_PREFIX + CACHE_VERSION;
 
