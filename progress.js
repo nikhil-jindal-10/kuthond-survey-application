@@ -558,7 +558,7 @@
   const NPL_DOC_BANDS = ["2026", "2025", "2024", "2023", "2022 – 2021", "2020 and before", "DOC not known"];
   const NPL_AMT_BANDS = ["Up to ₹5K", "₹5K – 10K", "₹10K – 25K", "₹25K – 50K", "₹50K – 1 lakh", "₹1 lakh – 3 lakh", "Above ₹3 lakh"];
   /* v20.12: latest disconnection visit of an account, for the office list lists */
-  const VISIT_STATUS_TEXT = { DISCONNECTED: "Disconnected", "TIME GIVEN FOR PAYMENT": "Time given", PAID: "Paid at visit" };
+  const VISIT_STATUS_TEXT = { DISCONNECTED: "Disconnected", "HOUSE LOCK AND DISCONNECTED": "House lock & disconnected", "TIME GIVEN FOR PAYMENT": "Time given", PAID: "Paid at visit" };
   function nplVisit(acct) {
     const v = nplVisits[String(acct || "")];
     return v ? { date: formatListDate(v.date), status: VISIT_STATUS_TEXT[v.status] || v.status,
@@ -591,7 +591,7 @@
         const addTo = t => {
           t.n++; t.listOut += x.listOut;
           if (x.paid) { t.paid++; t.amt += x.amt; } else { t.notPaid++; t.notPaidOut += Math.max(x.out, 0); }
-          if (st === "DISCONNECTED") t.disc++;
+          if (isDisconnectedStatus(st)) t.disc++;
           if (isTimeGiven(st)) t.tg++;
         };
         addTo(total);
@@ -777,8 +777,8 @@
     const paid = paidSince(r, pays);
     switch (kind) {
       case "visited": return true;
-      case "disc": return r.status === "DISCONNECTED";
-      case "discPaid": return r.status === "DISCONNECTED" && paid;
+      case "disc": return isDisconnectedStatus(r.status);
+      case "discPaid": return isDisconnectedStatus(r.status) && paid;
       case "tg": return isTimeGiven(r.status);
       case "tgPaid": return isTimeGiven(r.status) && paid;
       case "tgNotPaid": return isTimeGiven(r.status) && !paid;
@@ -821,7 +821,7 @@
       const out = Number(p.out) || 0, amt = paid ? num(p.amt) : 0;
       const addTo = t => {
         t.visited++; t.visitedOut += out;
-        if (r.status === "DISCONNECTED") { t.disc++; t.discOut += out; if (paid) { t.discPaid++; t.discAmt += amt; } }
+        if (isDisconnectedStatus(r.status)) { t.disc++; t.discOut += out; if (paid) { t.discPaid++; t.discAmt += amt; } }
         else if (isTimeGiven(r.status)) { t.tg++; t.tgOut += out; if (paid) { t.tgPaid++; t.tgAmt += amt; } }
         else if (r.status === "PAID") { t.pv++; t.pvOut += out; if (paid) { t.pvPaid++; t.pvAmt += amt; } }
       };
@@ -1091,7 +1091,7 @@
         const st = nplVisits[f.acct] ? nplVisits[f.acct].status : "";
         if (q.st === "paid") return f.nplPaid;
         if (q.st === "notPaid") return !f.nplPaid;
-        if (q.st === "disc") return st === "DISCONNECTED";
+        if (q.st === "disc") return isDisconnectedStatus(st);
         if (q.st === "tg") return isTimeGiven(st);
         return true;
       }

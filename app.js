@@ -2567,7 +2567,7 @@ async function keepVideoForUpload(record, video) {
  * For other statuses it is optional (kept if recorded).
  */
 const VIDEO_REQUIRED_STATUSES = {
-  DISCONNECTION: ["DISCONNECTED"],
+  DISCONNECTION: ["DISCONNECTED", "HOUSE LOCK AND DISCONNECTED"],
   RECHECK: ["FOUND CONNECTED", "STILL DISCONNECTED", "HOUSE LOCKED"]
 };
 
@@ -2978,6 +2978,8 @@ function buildActivityShareText(record) {
     record.father_name ? "Father/Husband: " + record.father_name : "",
     record.feeded_village_name ? "Village: " + record.feeded_village_name : "",
     "Status: " + (status || ""),
+    record.office_list ? "List: " + record.office_list : "",                       /* v20.17 */
+    record.paid_amount ? "Amount Paid: ₹" + record.paid_amount : "",
     record.payment_mode ? "Payment Mode: " + record.payment_mode : "",
     record.committed_payment_date ? "Committed Payment Date: " + record.committed_payment_date : "",
     record.outstanding !== "" && record.outstanding != null ? "Outstanding: ₹" + record.outstanding : "",
@@ -3581,6 +3583,17 @@ function dlMatches(c, f) {
   }
 
   return true;
+}
+
+/* v20.17: "Never Paid" / "Long Unpaid" / "" for messages */
+function officeListName(c) {
+  const t = nplTypeOf(c);
+  return t === "NEVER PAID" ? "Never Paid" : t === "LONG UNPAID" ? "Long Unpaid" : "";
+}
+/* v20.17: Disconnected, also when the house was locked */
+function isDisconnectedStatus(s) {
+  s = String(s || "").trim().toUpperCase();
+  return s === "DISCONNECTED" || s === "HOUSE LOCK AND DISCONNECTED";
 }
 
 /* v20.11: office Never Paid / Long Unpaid list (Fieldwork Master Tool, data\lists) */
@@ -7558,16 +7571,19 @@ function renderActivityCorrectionForm(record){
 
   let fields=common;
   if(type==="DISCONNECTION"){
-    fields+=activityCorrectionSelect("activityCorrStatus","Disconnection Status",record.disconnection_status,["DISCONNECTED","TIME GIVEN FOR PAYMENT","PAID"]);
+    fields+=activityCorrectionSelect("activityCorrStatus","Disconnection Status",record.disconnection_status,["DISCONNECTED","HOUSE LOCK AND DISCONNECTED","TIME GIVEN FOR PAYMENT","PAID"]);
     fields+=activityCorrectionSelect("activityCorrPaymentMode","Payment Mode",record.payment_mode,["PAID ONLINE AT SITE","PAID OFFLINE AT COUNTER","PAYMENT RECEIVED BY LINEMAN"]);
+    /* v20.17: fields added to the form in v20.11 */
+    fields+=`<label for="activityCorrPaidAmount">Amount Paid, Rs. (recorded by user)</label><input id="activityCorrPaidAmount" inputmode="decimal" value="${escapeHtml(record.paid_amount||"")}">`;
     fields+=`<label for="activityCorrCommitDate">Committed Payment Date</label><input id="activityCorrCommitDate" type="date" value="${escapeHtml(record.committed_payment_date||"")}">`;
     fields+=activityCorrectionSelect("activityCorrMeterStatus","Current Meter Status",record.meter_status,["OK","DAMAGED","NOT INSTALLED","BURNT","UNMETERED"]);
     fields+=`<label for="activityCorrReading">Site Reading</label><input id="activityCorrReading" value="${escapeHtml(record.current_reading||"")}">`;
     fields+=`<label for="activityCorrMobile">Mobile Number</label><input id="activityCorrMobile" inputmode="numeric" maxlength="10" value="${escapeHtml(record.mobile_number||"")}">`;
+    fields+=`<div class="check-row"><label><input id="activityCorrMobileRefused" type="checkbox"${String(record.mobile_refused||"").toUpperCase()==="YES"?" checked":""}>Consumer refused to give mobile number</label></div>`;
     fields+=activityCorrectionSelect("activityCorrHouse","House Condition",record.house_condition,["kutcha house","Pucca normal house","Pucca Good house","Luxury (Rich) house"]);
     fields+=`<label for="activityCorrRemarks">Remark</label><textarea id="activityCorrRemarks" rows="3">${escapeHtml(record.remarks||"")}</textarea>`;
   } else if(type==="RECHECK"){
-    fields+=activityCorrectionSelect("activityCorrStatus","Present Status",record.present_status,["STILL DISCONNECTED","FOUND CONNECTED","FOUND HOUSE LOCKED","PAYMENT MADE"]);
+    fields+=activityCorrectionSelect("activityCorrStatus","Present Status",record.present_status,["STILL DISCONNECTED","FOUND CONNECTED","HOUSE LOCKED","PAYMENT MADE"]);
     fields+=activityCorrectionSelect("activityCorrPaymentMode","Payment Mode",record.payment_mode,["PAID ONLINE AT SITE","PAID OFFLINE AT COUNTER","PAYMENT RECEIVED BY LINEMAN"]);
     fields+=activityCorrectionSelect("activityCorrMeterStatus","Current Meter Status",record.meter_status,["OK","DAMAGED","NOT INSTALLED","BURNT","UNMETERED"]);
     fields+=`<label for="activityCorrReading">Site Reading</label><input id="activityCorrReading" value="${escapeHtml(record.current_reading||"")}">`;
@@ -7633,6 +7649,16 @@ function prepareActivityCorrectionSave(original){
     if(!corrected.meter_status) return setStatus("activityCorrectionStatus","Select current meter status.","error");
     if(corrected.mobile_number && !/^\d{10}$/.test(corrected.mobile_number)) return setStatus("activityCorrectionStatus","Enter a valid 10 digit mobile number.","error");
     if(!corrected.house_condition) return setStatus("activityCorrectionStatus","Select house condition.","error");
+    /* v20.17: amount paid (only for Paid) and consumer refused (only for Disconnected) */
+    const paidText=$("activityCorrPaidAmount").value.replace(/,/g,"").trim();
+    if(paidText && !(Number(paidText)>0)) return setStatus("activityCorrectionStatus","Amount paid must be a number.","error");
+    const wasPaidWithAmount=String(original.disconnection_status||"").toUpperCase()==="PAID" && String(original.paid_amount||"").trim()!=="";
+    if(corrected.disconnection_status==="PAID" && !paidText && (wasPaidWithAmount || String(original.disconnection_status||"").toUpperCase()!=="PAID"))
+      return setStatus("activityCorrectionStatus","Enter the amount paid.","error");
+    corrected.paid_amount=corrected.disconnection_status==="PAID" ? paidText : "";
+    const refused=corrected.disconnection_status==="DISCONNECTED" && $("activityCorrMobileRefused").checked;
+    if(refused && corrected.mobile_number) return setStatus("activityCorrectionStatus","Consumer refused is ticked: clear the mobile number, or untick it.","error");
+    corrected.mobile_refused=refused ? "YES" : "NO";
   } else if(type==="RECHECK"){
     corrected.present_status=$("activityCorrStatus").value;
     corrected.payment_mode=$("activityCorrPaymentMode").value;
@@ -7710,7 +7736,7 @@ function prepareActivityCorrectionSave(original){
     ["Consumer",corrected.consumer_name||""],
     ["Total Outstanding",corrected.outstanding||"—"]
   ];
-  if(type==="DISCONNECTION") items.push(["Disconnection Status",corrected.disconnection_status], ["Payment Mode",corrected.payment_mode||"—"], ["Committed Payment Date",corrected.committed_payment_date||"—"], ["Meter Status",corrected.meter_status], ["Site Reading",corrected.current_reading||"—"], ["Mobile",corrected.mobile_number||"—"], ["House Condition",corrected.house_condition], ["Remark",corrected.remarks||"—"]);
+  if(type==="DISCONNECTION") items.push(["Disconnection Status",corrected.disconnection_status], ["Payment Mode",corrected.payment_mode||"—"], ["Amount Paid",corrected.paid_amount ? "₹"+corrected.paid_amount : "—"], ["Committed Payment Date",corrected.committed_payment_date||"—"], ["Meter Status",corrected.meter_status], ["Site Reading",corrected.current_reading||"—"], ["Mobile",corrected.mobile_refused==="YES" ? "Not provided - Consumer Refused" : (corrected.mobile_number||"—")], ["House Condition",corrected.house_condition], ["Remark",corrected.remarks||"—"]);
   else if(type==="RECHECK") items.push(["Present Status",corrected.present_status], ["Payment Mode",corrected.payment_mode||"—"], ["Current Meter Status",corrected.meter_status||"—"], ["Site Reading",corrected.current_reading||"—"], ["Mobile",corrected.mobile_number||"—"], ["Remark",corrected.remarks||"—"]);
   else if(type==="PHONE_CALLING") items.push(["Mobile",corrected.mobile_number], ["Call Response",corrected.call_response], ["Committed Payment Date",corrected.committed_payment_date||"—"], ["Remark",corrected.remarks||"—"]);
 
@@ -8242,6 +8268,7 @@ function prepareRecheckSave(){
     present_status:status,
     payment_mode:paymentMode,
     payment_date:"",
+    office_list:officeListName(c),
     meter_status:meter,
     current_reading:reading,
     mobile_number:mobile,
@@ -8554,7 +8581,9 @@ function prepareDisconnectionSave(){
   const mobileRefused=status==="DISCONNECTED" && !!($("disconnectMobileRefused") && $("disconnectMobileRefused").checked);
   const paidAmountText=$("disconnectPaidAmount") ? $("disconnectPaidAmount").value.replace(/,/g,"").trim() : "";
   if(status==="PAID" && !(Number(paidAmountText)>0)) return setStatus("disconnectSaveStatus","Enter the amount paid.","error");
-  if(!mobileRefused && !/^\d{10}$/.test(mobile)) return setStatus("disconnectSaveStatus",
+  const houseLock=status==="HOUSE LOCK AND DISCONNECTED";      /* v20.17: nobody at home, mobile number if known */
+  if(houseLock && mobile && !/^\d{10}$/.test(mobile)) return setStatus("disconnectSaveStatus","Enter a valid 10 digit mobile number, or leave it empty.","error");
+  if(!houseLock && !mobileRefused && !/^\d{10}$/.test(mobile)) return setStatus("disconnectSaveStatus",
     status==="DISCONNECTED" ? "Enter a valid 10 digit mobile number, or tick Consumer Refused." : "Enter a valid 10 digit mobile number.","error");
   if(!house) return setStatus("disconnectSaveStatus","Select house condition.","error");
   const videoProblem=checkActivityVideo("DISCONNECTION",c,isVideoRequired("DISCONNECTION",status));
@@ -8576,6 +8605,7 @@ function prepareDisconnectionSave(){
     meter_status:meter,current_reading:reading,mobile_number:mobile,house_condition:house,remarks,
     paid_amount:status==="PAID" ? paidAmountText : "",
     mobile_refused:mobileRefused ? "YES" : "NO",
+    office_list:officeListName(c),
     master_data_up_to:String((getLocalMasterMeta() || {}).report_date || ""),
     latitude:state.disconnectGps?state.disconnectGps.latitude:"",longitude:state.disconnectGps?state.disconnectGps.longitude:"",gps_accuracy:state.disconnectGps?state.disconnectGps.accuracy:"",
     created_at:new Date().toISOString(),upload_status:"PENDING"
@@ -9941,19 +9971,8 @@ async function loadDashboardFilters() {
 
     if (!result.success) return;
 
-    const substationSelect = $("dashSubstationFilter");
-
-    if(substationSelect){
-      substationSelect.innerHTML =
-        '<option value="">All Substations</option>';
-
-      for(const s of (result.substations || [])){
-        substationSelect.insertAdjacentHTML(
-          "beforeend",
-          `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`
-        );
-      }
-    }
+    /* v20.17: tick boxes; the server sends only this subdivision's substations */
+    fillDashSubPicker(result.substations || []);
 
   } catch(e) {}
 }
@@ -10152,6 +10171,48 @@ function setDashboardToday() {
   $("dashToDate").value = today;
 
   $("dashSubstationFilter").value = "";
+  syncDashSubPicker();
+}
+
+/*
+ * v20.17: substation filter with tick boxes. The chosen names are kept in the
+ * hidden #dashSubstationFilter as "A||B" (empty = all substations).
+ */
+function fillDashSubPicker(list) {
+  const box = $("dashSubPickerList");
+  if (!box) return;
+  const keep = String($("dashSubstationFilter").value || "").split("||").filter(s => list.indexOf(s) !== -1);
+  $("dashSubstationFilter").value = keep.join("||");
+  box.innerHTML =
+    '<label class="sub-pick-row sub-pick-all"><input type="checkbox" value=""> All Substations</label>' +
+    list.map(s => '<label class="sub-pick-row"><input type="checkbox" value="' + escapeHtml(s) + '"> ' + escapeHtml(s) + "</label>").join("") +
+    '<button type="button" id="dashSubPickerDone" class="small-btn">DONE</button>';
+  box.querySelectorAll("input").forEach(cb => cb.addEventListener("change", () => {
+    const boxes = Array.from(box.querySelectorAll("input"));
+    if (cb.value === "") boxes.forEach(x => { if (x.value !== "") x.checked = false; });
+    const chosen = boxes.filter(x => x.value !== "" && x.checked).map(x => x.value);
+    $("dashSubstationFilter").value = chosen.join("||");
+    syncDashSubPicker();
+  }));
+  $("dashSubPickerDone").addEventListener("click", () => box.classList.add("hidden"));
+  syncDashSubPicker();
+}
+
+function syncDashSubPicker() {
+  const chosen = String(($("dashSubstationFilter") && $("dashSubstationFilter").value) || "").split("||").filter(Boolean);
+  const box = $("dashSubPickerList");
+  if (box) box.querySelectorAll("input").forEach(x => { x.checked = x.value === "" ? !chosen.length : chosen.indexOf(x.value) !== -1; });
+  const btn = $("dashSubPickerBtn");
+  if (btn) btn.textContent = !chosen.length ? "All Substations"
+    : chosen.length <= 2 ? chosen.join(", ") : chosen.slice(0, 2).join(", ") + " +" + (chosen.length - 2) + " more";
+}
+
+if ($("dashSubPickerBtn")) {
+  $("dashSubPickerBtn").addEventListener("click", () => $("dashSubPickerList").classList.toggle("hidden"));
+  document.addEventListener("click", e => {
+    const p = $("dashSubPicker");
+    if (p && !p.contains(e.target)) $("dashSubPickerList").classList.add("hidden");
+  });
 }
 
 
@@ -10316,6 +10377,7 @@ function renderDashboardSummaries(result) {
     row("AC installed – YES", "ac_yes", { match: x => x.ac === "YES" }), row("AC installed – NO", "ac_no", { match: x => x.ac === "NO" })]);
   mtx("dashDiscTable", "DISCONNECTION", by.disconnection, [
     row("Total visits", "total", { match: all }), row("Disconnected", "disconnected", { match: st("DISCONNECTED") }),
+    row("House lock and disconnected", "house_lock_disc", { match: st("HOUSE LOCK AND DISCONNECTED") }),
     row("Time given", "time_given", { match: st("TIME GIVEN FOR PAYMENT") }), row("Paid", "paid", { match: st("PAID") }),
     row("Total outstanding", "outstanding", { money: true, count: c => (c && c.total) || 0, match: all })]
     .concat(videoRows("Disconnected, but no video recorded")), videoNote);
@@ -10523,7 +10585,7 @@ async function downloadDisconnectionReportPdf(mode, fromDate, toDate) {
       const paidSince = !!pay && pay >= r.date;
       if (mode === "TG_NOT_PAID" && !(r.status === "TIME GIVEN FOR PAYMENT" && !paidSince)) continue;
       if (mode === "PAID_NOT_PAID" && !(r.status === "PAID" && !paidSince)) continue;
-      if (mode === "DISC_NOT_PAID" && !(r.status === "DISCONNECTED" && !paidSince)) continue;      /* v20.13 */
+      if (mode === "DISC_NOT_PAID" && !(isDisconnectedStatus(r.status) && !paidSince)) continue;      /* v20.13, v20.17 */
       const sub = String((c && c.SUBSTATION) || r.user_substation || "").replace(/_\d+$/, "");
       /* final outstanding: on the visit day (daily data, Apps Script) - else as saved at the visit */
       let out = amount(r.visit_day_outstanding), mark = "";
@@ -10566,7 +10628,7 @@ async function downloadDisconnectionReportPdf(mode, fromDate, toDate) {
     doc.setFontSize(14);
     doc.text(TITLE, 10, 12);
     doc.setFontSize(8.5);
-    const subFilter = $("dashSubstationFilter") && $("dashSubstationFilter").value;
+    const subFilter = $("dashSubstationFilter") && $("dashSubstationFilter").value.split("||").join(", ");
     doc.text("Period: " + dmy(from) + " to " + dmy(to) + (subFilter ? "    Substation: " + subFilter : "") +
       (mode === "REPORT" ? "" : "    Payments up to: " + ((getLocalMasterMeta() || {}).report_date || "data on this phone")) +
       "    On: " + shareDateText(new Date().toISOString()), 10, 18);
@@ -10582,18 +10644,22 @@ async function downloadDisconnectionReportPdf(mode, fromDate, toDate) {
     if (mode === "REPORT") {
       addCount("Total visits", all);
       addCount("Disconnected", x => x.status === "DISCONNECTED");
+      addCount("House lock and disconnected", x => x.status === "HOUSE LOCK AND DISCONNECTED");
       addCount("Time given", x => x.status === "TIME GIVEN FOR PAYMENT");
       addCount("Paid", x => x.status === "PAID");
       addSum("Final outstanding", x => x.out);
       addSum("Paid amount (recorded by user)", x => x.paid);
-      addCount("Never paid / Long unpaid", x => !!x.list);
+      addCount("Never paid", x => x.list === "Never paid");
+      addCount("Long unpaid", x => x.list === "Long unpaid");
     } else {
       addCount("Consumers", all);
       addSum("Final outstanding (visit day)", x => x.out);
       addSum("Outstanding now", x => x.now);
       if (mode === "PAID_NOT_PAID") addSum("Paid amount (recorded by user)", x => x.paid);
-      addCount("Never paid / Long unpaid", x => !!x.list);
+      addCount("Never paid", x => x.list === "Never paid");
+      addCount("Long unpaid", x => x.list === "Long unpaid");
     }
+
     doc.autoTable({
       startY: 22, margin: { left: 10, right: 10, bottom: getReportSignature() ? 28 : 10 },
       head: [["Status"].concat(subs, ["Total"])], body: sRows, theme: "grid",
@@ -11917,6 +11983,7 @@ $("clearDashboardFilterBtn").addEventListener("click", () => {
   $("dashToDate").value="";
 
   $("dashSubstationFilter").value="";
+  syncDashSubPicker();
   resetDashboardDisplay();
 });
 
@@ -12009,16 +12076,44 @@ function showAppToast(text, ms) {
 /* ---------- 2. SHARE PDF ON WHATSAPP (lists) ---------- */
 const listPdfs = {};
 
-/* blob = one PDF, or (v20.6) a list of { blob, name } for separate PDFs: all go in one share */
+/* v20.17: Chrome shares at most 10 files (about 50 MB) at a time, so many PDFs go in parts:
+   each tap of the button shares the next part. */
+const SHARE_MAX_FILES = 10;
+const SHARE_MAX_BYTES = 45 * 1024 * 1024;
+
+function splitShareParts(files) {
+  const parts = [];
+  let cur = [], bytes = 0;
+  files.forEach(f => {
+    const size = (f.blob && f.blob.size) || 0;
+    if (cur.length && (cur.length >= SHARE_MAX_FILES || bytes + size > SHARE_MAX_BYTES)) { parts.push(cur); cur = []; bytes = 0; }
+    cur.push(f);
+    bytes += size;
+  });
+  if (cur.length) parts.push(cur);
+  return parts;
+}
+
+function listShareLabel(item) {
+  const total = item.files.length;
+  if (item.parts.length <= 1) {
+    return total > 1
+      ? "SHARE " + total + " PDFs ON WHATSAPP(" + total + " पीडीएफ व्हाट्सऐप पर भेजें)"
+      : "SHARE PDF ON WHATSAPP(व्हाट्सऐप पर पीडीएफ भेजें)";
+  }
+  let start = 1;
+  for (let i = 0; i < item.part; i++) start += item.parts[i].length;
+  const end = start + item.parts[item.part].length - 1;
+  return "SHARE PDFs " + start + "–" + end + " OF " + total + " ON WHATSAPP(पीडीएफ " + start + "–" + end + " / " + total + " व्हाट्सऐप पर भेजें)";
+}
+
 function rememberListPdf(prefix, blob, name, title) {
   const files = Array.isArray(blob) ? blob : [{ blob: blob, name: name }];
-  listPdfs[prefix] = { files: files, name: files.map(x => x.name).join(", "), title: title };
+  listPdfs[prefix] = { files: files, name: files.map(x => x.name).join(", "), title: title, parts: splitShareParts(files), part: 0 };
   const btn = $(prefix + "SharePdfBtn");
   if (btn) {
     btn.classList.remove("hidden");
-    btn.textContent = files.length > 1
-      ? "SHARE " + files.length + " PDFs ON WHATSAPP(" + files.length + " पीडीएफ व्हाट्सऐप पर भेजें)"
-      : "SHARE PDF ON WHATSAPP(व्हाट्सऐप पर पीडीएफ भेजें)";
+    btn.textContent = listShareLabel(listPdfs[prefix]);
     if (typeof applyLanguage === "function") applyLanguage();      /* English / Hindi as chosen */
   }
 }
@@ -12028,11 +12123,12 @@ async function shareListPdf(prefix) {
   if (!item) return;
 
   const statusId = prefix + "StatusMsg";
-  const files = item.files.map(x => new File([x.blob], x.name, { type: "application/pdf" }));
-  const where = files.length > 1 ? "the " + files.length + " PDFs" : item.name;
+  const part = item.parts[item.part] || item.parts[0];
+  const files = part.map(x => new File([x.blob], x.name, { type: "application/pdf" }));
+  const where = item.files.length > 1 ? "the " + item.files.length + " PDFs" : item.name;
 
   if (!navigator.share || !navigator.canShare || !navigator.canShare({ files: files })) {
-    setStatus(statusId, "This device cannot share " + (files.length > 1 ? "these PDFs" : "the PDF") +
+    setStatus(statusId, "This device cannot share " + (item.files.length > 1 ? "these PDFs" : "the PDF") +
       " from here. Share " + where + " from the Download folder.", "error");
     return;
   }
@@ -12043,8 +12139,23 @@ async function shareListPdf(prefix) {
     if (e && e.name === "AbortError") return;
     console.error(e);
     setStatus(statusId, "Could not open sharing. Share " + where + " from the Download folder.", "error");
+    return;
+  }
+
+  if (item.parts.length > 1) {
+    const done = item.part + 1;
+    item.part = done % item.parts.length;
+    setStatus(statusId, done < item.parts.length
+      ? "Part " + done + " of " + item.parts.length + " shared. Tap the button again for the next PDFs."
+      : "All " + item.files.length + " PDFs shared (" + item.parts.length + " parts).", "ok");
+    const btn = $(prefix + "SharePdfBtn");
+    if (btn) {
+      btn.textContent = listShareLabel(item);
+      if (typeof applyLanguage === "function") applyLanguage();
+    }
   }
 }
+
 
 /* The buttons are added here, so index.html does not change. */
 [["dl", "dlPdfBtn"], ["du", "duPdfBtn"]].forEach(([prefix, pdfBtnId]) => {
@@ -13728,7 +13839,7 @@ function pgDriveHtml(pays) {
     const paidAfter = !!pay && pay >= r.date;
     const add = t => {
       t.visited++;
-      if (r.status === "DISCONNECTED") { t.disc++; if (paidAfter) t.discPaid++; }
+      if (isDisconnectedStatus(r.status)) { t.disc++; if (paidAfter) t.discPaid++; }
       else if (r.status.indexOf("TIME GIVEN") === 0) { t.tg++; if (paidAfter) t.tgPaid++; }
       else if (r.status === "PAID") t.paid++;
     };

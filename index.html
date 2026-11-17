@@ -140,6 +140,14 @@
 .dash-report-row{display:flex;flex-wrap:nowrap;align-items:center;justify-content:flex-start;gap:5px;font-size:11.5px;color:#64748b;margin:0 0 6px}
 .dash-report-label{font-size:12px;font-weight:700;color:#475569;margin:8px 0 4px}
 .dash-report-lists{flex-wrap:wrap}
+.sub-picker{position:relative;min-width:0}
+#dashboardCard .sub-picker-btn{width:100%;margin:0;text-align:left;background:#fff;color:inherit;border:1px solid #c7cbd1;border-radius:8px;padding:13px 34px 13px 13px;font-size:16px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative}
+#dashboardCard .sub-picker-btn::after{content:"";position:absolute;right:14px;top:50%;width:7px;height:7px;border-right:1.5px solid #555;border-bottom:1.5px solid #555;transform:translateY(-70%) rotate(45deg)}
+.sub-picker-list{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:30;background:#fff;border:1px solid #c7cbd1;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);max-height:300px;overflow:auto;padding:4px 0}
+.sub-pick-row{display:flex !important;align-items:center;gap:10px;padding:10px 12px;font-size:14px !important;font-weight:500 !important;margin:0 !important;cursor:pointer}
+.sub-pick-row input{width:18px;height:18px;margin:0;flex:none;padding:0}
+.sub-pick-all{border-bottom:1px solid #e2e8f0}
+#dashboardCard .sub-picker-list #dashSubPickerDone{display:block;width:calc(100% - 16px);margin:6px 8px 4px}
 .sig-canvas{width:100%;height:auto;aspect-ratio:600/220;border:1.5px dashed #94a3b8;border-radius:10px;background:#fff;touch-action:none;margin:8px 0}
 .sig-upload{display:inline-flex;align-items:center;justify-content:center;border:1px solid #cbd5e1;border-radius:10px;padding:8px 10px;font-size:12px;font-weight:700;cursor:pointer;margin:4px 0;flex:1}
 .dash-sig-line{margin-top:6px}
@@ -1218,6 +1226,7 @@ a.dash-link{color:#0f766e;font-weight:700;text-decoration:underline}
         <select id="disconnectStatus">
           <option value="">Select(चुनें)</option>
           <option value="DISCONNECTED">Disconnected(कनेक्शन काट दिया)</option>
+          <option value="HOUSE LOCK AND DISCONNECTED">House Lock and Disconnected(घर बंद - कनेक्शन काट दिया)</option>
           <option value="TIME GIVEN FOR PAYMENT">Time Given for Payment(भुगतान के लिए समय दिया)</option>
           <option value="PAID">Paid(भुगतान कर दिया)</option>
         </select>
@@ -1814,10 +1823,12 @@ a.dash-link{color:#0f766e;font-weight:700;text-decoration:underline}
     <label for="dashToDate">To Date</label>
     <input id="dashToDate" type="date">
 
-    <label for="dashSubstationFilter">Substation</label>
-    <select id="dashSubstationFilter">
-      <option value="">All Substations</option>
-    </select>
+    <label for="dashSubPickerBtn">Substation</label>
+    <div id="dashSubPicker" class="sub-picker">
+      <input type="hidden" id="dashSubstationFilter" value="">
+      <button type="button" id="dashSubPickerBtn" class="sub-picker-btn">All Substations</button>
+      <div id="dashSubPickerList" class="sub-picker-list hidden"></div>
+    </div>
     <div class="dashboard-filter-actions">
       <div class="dashboard-filter-action-row">
         <button id="todayDashboardBtn" class="primary" type="button">TODAY</button>
@@ -2148,9 +2159,9 @@ a.dash-link{color:#0f766e;font-weight:700;text-decoration:underline}
 <script src="./jspdf.umd.min.js"></script>
 <script src="./jspdf.plugin.autotable.min.js"></script>
 
-<script src="app.js?v=20.16"></script>
-<script src="progress.js?v=20.16"></script>
-<script src="consumer-view.js?v=20.16"></script>
+<script src="app.js?v=20.17"></script>
+<script src="progress.js?v=20.17"></script>
+<script src="consumer-view.js?v=20.17"></script>
 
 <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));}</script>
 </body>
