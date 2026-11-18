@@ -1084,6 +1084,8 @@ function showApp() {
 
   const showAdmin = state.isAdmin === true || state.userId.toLowerCase() === "admin";
   $("dashboardBtn").classList.remove("hidden");
+  /* v20.18: get the dashboard substation list ready before the dashboard is opened */
+  setTimeout(() => { if (state.sessionToken && navigator.onLine !== false) loadDashboardFilters(); }, 4000);
   if (showAdmin) {
     $("adminBtn").classList.remove("hidden");
   } else {
@@ -9963,18 +9965,38 @@ function resetDashboardDisplay() {
   });
 }
 
+/* v20.18: the substation list is kept on the phone (like the village list),
+   so the tick boxes are ready at once; the server copy refreshes it quietly. */
+function dashSubsKey() { return "fieldworkDashSubs_" + (state.userId || ""); }
+function dashSubsFromPhone() {
+  try { const v = JSON.parse(localStorage.getItem(dashSubsKey()) || "null"); return Array.isArray(v) ? v : null; }
+  catch (e) { return null; }
+}
+let dashSubsLoading = null;
+function dashSubsFailed() {
+  const box = $("dashSubPickerList");
+  if (box && !box.querySelector("input")) box.innerHTML = '<div class="sub-pick-row">Could not load substations. Check internet and open the dashboard again.</div>';
+}
+
 async function loadDashboardFilters() {
-  try {
-    // Keep the existing server call intact.
-    // Only the unused Village UI is removed.
-    const result = await adminRequest("dashboard_filters");
-
-    if (!result.success) return;
-
-    /* v20.17: tick boxes; the server sends only this subdivision's substations */
-    fillDashSubPicker(result.substations || []);
-
-  } catch(e) {}
+  const saved = dashSubsFromPhone();
+  if (saved && $("dashSubPickerList") && !$("dashSubPickerList").querySelector("input")) fillDashSubPicker(saved);
+  if (dashSubsLoading) return dashSubsLoading;
+  dashSubsLoading = (async () => {
+    try {
+      const result = await adminRequest("dashboard_filters");
+      if (!result.success) return dashSubsFailed();
+      /* v20.17: tick boxes; the server sends only this subdivision's substations */
+      const subs = result.substations || [];
+      try { localStorage.setItem(dashSubsKey(), JSON.stringify(subs)); } catch (e) {}
+      fillDashSubPicker(subs);
+    } catch(e) {
+      dashSubsFailed();
+    } finally {
+      dashSubsLoading = null;
+    }
+  })();
+  return dashSubsLoading;
 }
 
 
@@ -10222,7 +10244,7 @@ async function openDashboard() {
   resetDashboardDisplay();
   // Opening the dashboard must not request dashboard/activity data.
   // Only the lightweight filter lists are prepared here.
-  await loadDashboardFilters();
+  loadDashboardFilters();      /* v20.18: list from the phone at once, refreshed quietly */
 }
 
 function formatDashboardMoney(value){
@@ -10603,6 +10625,7 @@ async function downloadDisconnectionReportPdf(mode, fromDate, toDate) {
       const statusText = r.status === "TIME GIVEN FOR PAYMENT" ? "TIME GIVEN" + (committed ? " (" + dmy(committed) + ")" : "") : r.status;
       list.push({
         date: r.date, sub: sub || "—", acct: r.account_id, name: (c && c.NAME) || r.consumer_name,
+        user: r.user_name || r.user_id || "",
         father: (c && c.FATHER_NAME) || r.father_name, address: (c && c.ADDRESS) || r.address,
         supply: r.supply_type || (c && c.SUPPLY_TYPE) || "", load: r.load || (c && c.LOAD) || "",
         mobile: String(r.mobile_refused).toUpperCase() === "YES" ? "Refused" : r.mobile,
@@ -10648,14 +10671,14 @@ async function downloadDisconnectionReportPdf(mode, fromDate, toDate) {
       addCount("Time given", x => x.status === "TIME GIVEN FOR PAYMENT");
       addCount("Paid", x => x.status === "PAID");
       addSum("Final outstanding", x => x.out);
-      addSum("Paid amount (recorded by user)", x => x.paid);
+      addSum("Paid amount (reported by user)", x => x.paid);
       addCount("Never paid", x => x.list === "Never paid");
       addCount("Long unpaid", x => x.list === "Long unpaid");
     } else {
       addCount("Consumers", all);
       addSum("Final outstanding (visit day)", x => x.out);
       addSum("Outstanding now", x => x.now);
-      if (mode === "PAID_NOT_PAID") addSum("Paid amount (recorded by user)", x => x.paid);
+      if (mode === "PAID_NOT_PAID") addSum("Paid amount (reported by user)", x => x.paid);
       addCount("Never paid", x => x.list === "Never paid");
       addCount("Long unpaid", x => x.list === "Long unpaid");
     }
@@ -10672,31 +10695,31 @@ async function downloadDisconnectionReportPdf(mode, fromDate, toDate) {
 
     let head, body, colStyles;
     if (mode === "REPORT") {
-      head = ["S.No", "Date", "Substation", "Account ID", "Consumer Name", "Father/Husband", "Address", "Supply Type", "Load",
-        "Mobile No", "Latitude", "Longitude", "Final Out (Rs.)", "List Category", "Disconnection Status", "Paid Amount"];
-      body = list.map((x, i) => [i + 1, dmy(x.date), x.sub, x.acct, x.name, x.father, x.address, x.supply, x.load, x.mobile,
+      head = ["S.No", "Date", "Substation", "User Name", "Account ID", "Consumer Name", "Father/Husband", "Address", "Supply Type", "Load",
+        "Mobile No", "Latitude", "Longitude", "Final Out (Rs.)", "List Category", "Disconnection Status", "Paid Amount (Reported by User)"];
+      body = list.map((x, i) => [i + 1, dmy(x.date), x.sub, x.user, x.acct, x.name, x.father, x.address, x.supply, x.load, x.mobile,
         x.lat, x.lng, money2(x.out) + x.mark, x.list, x.statusText, x.paid === null ? "" : money2(x.paid)]);
-      colStyles = {
-        0: { cellWidth: 8, halign: "right" }, 1: { cellWidth: 15 }, 2: { cellWidth: 17 }, 3: { cellWidth: 17 },
-        4: { cellWidth: 22 }, 5: { cellWidth: 20 }, 6: { cellWidth: 28 }, 7: { cellWidth: 11, halign: "center" },
-        8: { cellWidth: 8, halign: "center" }, 9: { cellWidth: 17 }, 10: { cellWidth: 13 }, 11: { cellWidth: 13 },
-        12: { cellWidth: 18, halign: "right" }, 13: { cellWidth: 16, halign: "center" }, 14: { cellWidth: 25, halign: "center" },
-        15: { cellWidth: 16, halign: "right" }
+      colStyles = {      /* v20.18: User Name added */
+        0: { cellWidth: 8, halign: "right" }, 1: { cellWidth: 15 }, 2: { cellWidth: 17 }, 3: { cellWidth: 18 }, 4: { cellWidth: 17 },
+        5: { cellWidth: 22 }, 6: { cellWidth: 18 }, 7: { cellWidth: 24 }, 8: { cellWidth: 11, halign: "center" },
+        9: { cellWidth: 8, halign: "center" }, 10: { cellWidth: 17 }, 11: { cellWidth: 13 }, 12: { cellWidth: 13 },
+        13: { cellWidth: 18, halign: "right" }, 14: { cellWidth: 16, halign: "center" }, 15: { cellWidth: 21, halign: "center" },
+        16: { cellWidth: 18, halign: "right" }
       };
     } else {
-      head = ["S.No", "Visit Date", "Substation", "Account ID", "Consumer Name", "Father/Husband", "Address", "Mobile No",
+      head = ["S.No", "Visit Date", "Substation", "User Name", "Account ID", "Consumer Name", "Father/Husband", "Address", "Mobile No",
         mode === "TG_NOT_PAID" ? "Committed Date" : mode === "DISC_NOT_PAID" ? "Latitude, Longitude" : "Payment Mode",
-        mode === "PAID_NOT_PAID" ? "Paid Amount (by user)" : "Final Out (Rs.)",
+        mode === "PAID_NOT_PAID" ? "Paid Amount (Reported by User)" : "Final Out (Rs.)",
         "Last Pay Date", "Last Pay Amt", "Outstanding Now", "List Category"];
-      body = list.map((x, i) => [i + 1, dmy(x.date), x.sub, x.acct, x.name, x.father, x.address, x.mobile,
+      body = list.map((x, i) => [i + 1, dmy(x.date), x.sub, x.user, x.acct, x.name, x.father, x.address, x.mobile,
         mode === "TG_NOT_PAID" ? (x.committed ? dmy(x.committed) : "") : mode === "DISC_NOT_PAID" ? (x.lat ? x.lat + ", " + x.lng : "") : x.mode,
         mode === "PAID_NOT_PAID" ? (x.paid === null ? "" : money2(x.paid)) : money2(x.out) + x.mark,
         x.lastPay ? dmy(x.lastPay) : "", x.lastPayAmt || "", x.now === null ? "" : money2(x.now), x.list]);
-      colStyles = {
-        0: { cellWidth: 8, halign: "right" }, 1: { cellWidth: 16 }, 2: { cellWidth: 18 }, 3: { cellWidth: 18 },
-        4: { cellWidth: 26 }, 5: { cellWidth: 24 }, 6: { cellWidth: 34 }, 7: { cellWidth: 18 }, 8: { cellWidth: 20 },
-        9: { cellWidth: 19, halign: "right" }, 10: { cellWidth: 17 }, 11: { cellWidth: 15, halign: "right" },
-        12: { cellWidth: 20, halign: "right" }, 13: { cellWidth: 17, halign: "center" }
+      colStyles = {      /* v20.18: User Name added */
+        0: { cellWidth: 8, halign: "right" }, 1: { cellWidth: 16 }, 2: { cellWidth: 18 }, 3: { cellWidth: 18 }, 4: { cellWidth: 18 },
+        5: { cellWidth: 22 }, 6: { cellWidth: 20 }, 7: { cellWidth: 30 }, 8: { cellWidth: 18 }, 9: { cellWidth: 20 },
+        10: { cellWidth: 19, halign: "right" }, 11: { cellWidth: 17 }, 12: { cellWidth: 15, halign: "right" },
+        13: { cellWidth: 20, halign: "right" }, 14: { cellWidth: 17, halign: "center" }
       };
     }
     doc.autoTable({
@@ -12118,9 +12141,39 @@ function rememberListPdf(prefix, blob, name, title) {
   }
 }
 
-async function shareListPdf(prefix) {
+/* v20.18: before the first part, a small popup says the PDFs go 10 at a time.
+   Its SHARE button is a fresh tap, so sharing can open from it. */
+function openSharePartsPopup(prefix) {
+  const item = listPdfs[prefix];
+  const ranges = [];
+  let start = 1;
+  item.parts.forEach(p => { ranges.push(start + "–" + (start + p.length - 1)); start += p.length; });
+  $("sharePartsText").textContent =
+    "WhatsApp can share only 10 PDFs at a time. Your " + item.files.length + " PDFs will go in " + item.parts.length +
+    " parts: PDFs " + ranges.join(", ") + ". Tap the green button below for the first part. After sending it in WhatsApp, come back and tap the share button again for the next part." +
+    "(व्हाट्सऐप पर एक बार में केवल 10 पीडीएफ भेजे जा सकते हैं। आपके " + item.files.length + " पीडीएफ " + item.parts.length +
+    " भागों में जाएँगे: " + ranges.join(", ") + "। पहले भाग के लिए नीचे का हरा बटन दबाएँ। व्हाट्सऐप में भेजने के बाद वापस आकर अगले भाग के लिए शेयर बटन फिर दबाएँ।)";
+  $("sharePartsGoBtn").textContent = "SHARE PDFs " + ranges[0] + "(पीडीएफ " + ranges[0] + " भेजें)";
+  $("sharePartsModal").dataset.prefix = prefix;
+  $("sharePartsModal").classList.remove("hidden");
+  if (typeof applyLanguage === "function") applyLanguage();
+}
+if ($("sharePartsGoBtn")) {
+  $("sharePartsGoBtn").addEventListener("click", () => {
+    $("sharePartsModal").classList.add("hidden");
+    shareListPdf($("sharePartsModal").dataset.prefix, true);
+  });
+  $("sharePartsCancelBtn").addEventListener("click", () => $("sharePartsModal").classList.add("hidden"));
+}
+
+async function shareListPdf(prefix, fromPopup) {
   const item = listPdfs[prefix];
   if (!item) return;
+  if (item.parts.length > 1 && item.part === 0 && fromPopup !== true && $("sharePartsModal")) {
+    openSharePartsPopup(prefix);
+    return;
+  }
+
 
   const statusId = prefix + "StatusMsg";
   const part = item.parts[item.part] || item.parts[0];

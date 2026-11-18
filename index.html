@@ -1827,7 +1827,7 @@ a.dash-link{color:#0f766e;font-weight:700;text-decoration:underline}
     <div id="dashSubPicker" class="sub-picker">
       <input type="hidden" id="dashSubstationFilter" value="">
       <button type="button" id="dashSubPickerBtn" class="sub-picker-btn">All Substations</button>
-      <div id="dashSubPickerList" class="sub-picker-list hidden"></div>
+      <div id="dashSubPickerList" class="sub-picker-list hidden"><div class="sub-pick-row">Loading substations…(सबस्टेशन लोड हो रहे हैं…)</div></div>
     </div>
     <div class="dashboard-filter-actions">
       <div class="dashboard-filter-action-row">
@@ -2074,6 +2074,15 @@ a.dash-link{color:#0f766e;font-weight:700;text-decoration:underline}
 
 
 
+<div id="sharePartsModal" class="modal hidden">
+  <div class="modal-box">
+    <h2>Share PDFs in parts(पीडीएफ भागों में भेजें)</h2>
+    <p id="sharePartsText"></p>
+    <button id="sharePartsGoBtn" class="primary" type="button">SHARE</button>
+    <button id="sharePartsCancelBtn" class="secondary" type="button">CANCEL(रद्द करें)</button>
+  </div>
+</div>
+
 <div id="videoRecorderModal" class="modal hidden">
   <div class="modal-box">
     <h2>Record Video(वीडियो रिकॉर्ड करें)</h2>
@@ -2159,9 +2168,9 @@ a.dash-link{color:#0f766e;font-weight:700;text-decoration:underline}
 <script src="./jspdf.umd.min.js"></script>
 <script src="./jspdf.plugin.autotable.min.js"></script>
 
-<script src="app.js?v=20.17"></script>
-<script src="progress.js?v=20.17"></script>
-<script src="consumer-view.js?v=20.17"></script>
+<script src="app.js?v=20.18"></script>
+<script src="progress.js?v=20.18"></script>
+<script src="consumer-view.js?v=20.18"></script>
 
 <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));}</script>
 </body>
