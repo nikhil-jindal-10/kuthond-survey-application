@@ -547,11 +547,30 @@
   /* v20.11: office Never Paid / Long Unpaid lists - paid after the list, disconnected, time given */
   function nplLatestVisit() {
     const byAcct = {};
-    ((drive && drive.rows) || []).forEach(r => {
+    ((drive && drive.rows) || []).concat(phoneVisits).forEach(r => {      /* v20.19: + this phone's entries */
       const old = byAcct[r.acct];
       if (!old || r.date >= old.date) byAcct[r.acct] = r;
     });
     return byAcct;
+  }
+  /* v20.19: disconnection entries saved on this phone (they count at once, even before upload) */
+  let phoneVisits = [];
+  async function loadPhoneVisits() {
+    try {
+      const list = typeof getAllFromStore === "function" ? await getAllFromStore("disconnections") : [];
+      const p = x => String(x).padStart(2, "0");
+      phoneVisits = list.filter(r => r && r.account_id && r.created_at).map(r => {
+        const d = new Date(r.created_at);
+        return {
+          acct: String(r.account_id).trim(),
+          status: String(r.disconnection_status || "").toUpperCase(),
+          date: isNaN(d) ? "" : d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()),
+          commit: parseMasterDate(r.committed_payment_date) || ""
+        };
+      }).filter(r => r.date);
+    } catch (e) {
+      phoneVisits = [];
+    }
   }
   let nplVisits = {};
   /* v20.13 */
@@ -628,7 +647,7 @@
     });
     const d = Array.from(dates).sort().pop();
     html += note("Office list" + (d ? " of " + formatListDate(d) : "") + " (all connection statuses). Paid = a payment after the list " +
-      "(never paid: any payment). Disconnected / Time given = latest disconnection visit (tap REFRESH in Disconnection drive).");
+      "(never paid: any payment). Disconnected / Time given = latest disconnection visit (refreshed when Progress opens; REFRESH in Disconnection drive for the very latest).");
     return html;
   }
 
@@ -1311,7 +1330,7 @@
     if (dayBox) $("pgRevenue").insertAdjacentElement("beforebegin", dayBox);
     $("pgRevenue").innerHTML = revenueHtml(col, ctx);
     if (dayBox && $("pgDaySlot")) $("pgDaySlot").appendChild(dayBox);
-    if ($("pgNpl")) $("pgNpl").innerHTML = nplHtml();                       /* v20.11 */
+    if ($("pgNpl")) { await loadPhoneVisits(); $("pgNpl").innerHTML = nplHtml(); }      /* v20.11, v20.19 */
     if ($("pgAssess")) $("pgAssess").innerHTML = assessmentHtml(col, ctx);
     $("pgTurnUp").innerHTML = turnUpHtml(col, ctx);
     $("pgBilling").innerHTML = billingHtml(col);
@@ -1350,7 +1369,9 @@
     }
     refreshDropdowns();
     await render();
-    if (!drive && navigator.onLine) refreshDrive();
+    /* v20.19: new visits of all users show without tapping REFRESH */
+    const driveAge = drive && drive.at ? Date.now() - Date.parse(drive.at) : Infinity;
+    if (navigator.onLine && !(driveAge < 10 * 60 * 1000)) refreshDrive();
   }
 
   /* ---------- wiring ---------- */
