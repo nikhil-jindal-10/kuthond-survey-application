@@ -8,7 +8,7 @@
  * and show it on the open after that.
  */
 
-const CACHE_VERSION = "v20.19";
+const CACHE_VERSION = "v20.21";
 const CACHE_PREFIX = "fieldwork-pwa-";
 const CACHE = CACHE_PREFIX + CACHE_VERSION;
 
@@ -168,3 +168,129 @@ self.addEventListener("backgroundfetchfail", event => {
 self.addEventListener("backgroundfetchclick", event => {
   event.waitUntil(self.clients.openWindow("./"));
 });
+
+/*
+ * v20.20: pending videos upload in the background (Background Sync, Chrome on
+ * Android): also after the app is closed or the phone is locked. Same steps as
+ * the app: upload link from Apps Script, file to R2, confirm, remove the hidden
+ * copy. Only videos whose entry is already on the server. One upload at a
+ * time with the app (lock "fieldwork-video-upload").
+ */
+const BG_VIDEO_SYNC_TAG = "fieldwork-videos";
+
+self.addEventListener("sync", event => {
+  if (event.tag !== BG_VIDEO_SYNC_TAG) return;
+  event.waitUntil(bgVideoSync());
+});
+
+function bgOpenDb(name) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(name);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+function bgAll(db, store) {
+  return new Promise((resolve, reject) => {
+    if (!db.objectStoreNames.contains(store)) return resolve([]);
+    const req = db.transaction(store, "readonly").objectStore(store).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+function bgDelete(db, store, key) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readwrite");
+    tx.objectStore(store).delete(key);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function bgSession() {
+  try {
+    const cache = await caches.open("fieldwork-bg-session");
+    const res = await cache.match("./bg-session");
+    return res ? await res.json() : null;
+  } catch (e) { return null; }
+}
+async function bgPost(sess, action, extra) {
+  const res = await fetch(sess.server, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(Object.assign({ action: action, token: sess.token }, extra))
+  });
+  return JSON.parse(await res.text());
+}
+
+async function bgVideoSync() {
+  const sess = await bgSession();
+  if (!sess || !sess.token || !sess.server || sess.mode === "off") return;
+  const c = self.navigator && self.navigator.connection;
+  if (sess.mode === "wifi" && c && c.type === "cellular") return;
+
+  let more = false;
+  const run = async () => { more = await bgUploadVideos(sess); };
+  if (self.navigator.locks && self.navigator.locks.request) {
+    await self.navigator.locks.request("fieldwork-video-upload", { ifAvailable: true }, async lock => { if (lock) await run(); });
+  } else {
+    await run();
+  }
+  /* time was up with videos left: ask for another turn */
+  if (more) await self.registration.sync.register(BG_VIDEO_SYNC_TAG);
+}
+
+async function bgUploadVideos(sess) {
+  const vdb = await bgOpenDb("FieldworkVideos");
+  let uploaded = 0, tooLarge = 0;
+  try {
+    const videos = (await bgAll(vdb, "videos"))
+      .filter(v => v && v.blob && String(v.user_id || "") === String(sess.user_id || ""))
+      .sort((a, b) => String(a.recorded_at || "").localeCompare(String(b.recorded_at || "")));
+    if (!videos.length) return false;
+
+    /* only videos whose entry is already on the server */
+    const adb = await bgOpenDb("ConsumerMobileApp");
+    const ready = new Set();
+    try {
+      for (const [store, field] of [["disconnections", "disconnection_id"], ["rechecks", "recheck_id"]]) {
+        (await bgAll(adb, store)).forEach(r => {
+          if (String(r.upload_status || "").toUpperCase() === "UPLOADED" && r[field]) ready.add(r[field]);
+        });
+      }
+    } finally { adb.close(); }
+
+    const deadline = Date.now() + 150000;      /* Chrome gives a background turn a few minutes */
+    for (const v of videos) {
+      if (!ready.has(v.record_id)) continue;
+      if (Date.now() > deadline) return true;
+      const link = await bgPost(sess, "video_upload_url", {
+        record_id: v.record_id, account_id: v.account_id, video_user_id: v.user_id,
+        activity_type: v.activity_type, size_bytes: v.blob.size || v.size_bytes,
+        content_type: v.content_type, recorded_at: v.recorded_at
+      });
+      if (!link.success) {
+        if (link.code === "VIDEO_BAD_REQUEST" && /size/i.test(String(link.message || ""))) {
+          await bgDelete(vdb, "videos", v.record_id); tooLarge++; continue;
+        }
+        if (link.code === "VIDEO_UPLOAD_DISABLED") { await bgDelete(vdb, "videos", v.record_id); continue; }
+        return false;                         /* daily limit, login expired...: the app will say why */
+      }
+      if (!link.already_uploaded) {
+        const put = await fetch(link.upload_url, {
+          method: "PUT",
+          headers: { "Content-Type": link.content_type || v.content_type || "application/octet-stream" },
+          body: v.blob
+        });
+        if (!put.ok) throw new Error("Video storage returned HTTP " + put.status);
+        const ok = await bgPost(sess, "video_uploaded", { record_id: v.record_id, activity_type: v.activity_type, key: link.key });
+        if (!ok.success) throw new Error(ok.message || "Video upload could not be confirmed.");
+      }
+      await bgDelete(vdb, "videos", v.record_id);
+      uploaded++;
+    }
+    return false;
+  } finally {
+    vdb.close();
+    if (uploaded || tooLarge) await tellApp({ type: "videos-bg", uploaded: uploaded, tooLarge: tooLarge });
+  }
+}

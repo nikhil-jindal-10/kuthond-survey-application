@@ -1250,6 +1250,7 @@ function logout() {
   localStorage.removeItem("consumerMobileRole");
 
   state.sessionToken = "";
+  if (typeof saveBackgroundSession === "function") saveBackgroundSession();      /* v20.20: removes it */
   state.userId = "";
   state.userName = "";
   state.division = "";
@@ -2297,7 +2298,12 @@ function startVideoRecording() {
       )
     );
   } catch (e) {
-    recorder = new MediaRecorder(videoRecorder.stream);
+    /* v20.20: keep the small size (bit rate) even if the format is refused */
+    try {
+      recorder = new MediaRecorder(videoRecorder.stream, { videoBitsPerSecond: 650000, audioBitsPerSecond: 48000 });
+    } catch (e2) {
+      recorder = new MediaRecorder(videoRecorder.stream);
+    }
   }
 
   videoRecorder.recorder = recorder;
@@ -2394,6 +2400,15 @@ function finishVideoRecording() {
 
   updateVideoTimer(videoRecorder.seconds);
   setRecorderButtons("review");
+  /* v20.20: such a video could never be uploaded */
+  if (!videoRecorder.blob.size || videoRecorder.blob.size > VIDEO_UPLOAD_MAX_BYTES) {
+    if ($("videoSaveBtn")) $("videoSaveBtn").classList.add("hidden");
+    videoRecorderStatus(videoRecorder.blob.size
+      ? "This video is " + formatBytes(videoRecorder.blob.size) + ", more than the upload limit of " +
+        formatBytes(VIDEO_UPLOAD_MAX_BYTES) + ". Tap RETAKE and record a shorter video."
+      : "The recording is empty. Tap RETAKE and record again.", "error");
+    return;
+  }
   videoRecorderStatus(
     "Recorded " + formatDuration(videoRecorder.seconds) + " · " +
     formatBytes(videoRecorder.blob.size) + ". Tap PLAY PREVIEW to check it, then USE THIS VIDEO or RETAKE.",
@@ -2560,6 +2575,7 @@ async function keepVideoForUpload(record, video) {
     console.error("Could not keep video for upload", e);
   }
   refreshVideoUploadInfo();
+  registerBackgroundVideoUpload();      /* v20.20 */
 }
 
 /*
@@ -2702,7 +2718,7 @@ async function uploadOneVideo(video, onProgress) {
     account_id: video.account_id,
     video_user_id: video.user_id,
     activity_type: video.activity_type,
-    size_bytes: video.size_bytes,
+    size_bytes: (video.blob && video.blob.size) || video.size_bytes,      /* v20.20: the real size */
     content_type: video.content_type,
     recorded_at: video.recorded_at
   });
@@ -2711,6 +2727,11 @@ async function uploadOneVideo(video, onProgress) {
 
   if (!link.success) {
     if (link.code === "VIDEO_DAILY_LIMIT") return { outcome: "LIMIT", message: link.message };
+    /* v20.20: too large (or empty): it can never upload, so it must not stop the other videos */
+    if (link.code === "VIDEO_BAD_REQUEST" && /size/i.test(String(link.message || ""))) {
+      await deleteHiddenVideo(video.record_id);
+      return { outcome: "TOO_LARGE", message: link.message };
+    }
     if (link.code === "VIDEO_UPLOAD_DISABLED") {
       await deleteHiddenVideo(video.record_id);
       return { outcome: "DISABLED", message: link.message };
@@ -2745,7 +2766,26 @@ async function uploadOneVideo(video, onProgress) {
   return { outcome: "DONE" };
 }
 
+/* v20.20: the app and the background upload (service worker) share one lock */
+const VIDEO_UPLOAD_LOCK = "fieldwork-video-upload";
+const VIDEO_UPLOAD_MAX_BYTES = 60 * 1024 * 1024;      /* same as videos.gs VIDEO_MAX_BYTES */
+
 async function uploadPendingVideos() {
+  if (videoUploadRunning) return;
+  if (navigator.locks && navigator.locks.request) {
+    let ran = false;
+    await navigator.locks.request(VIDEO_UPLOAD_LOCK, { ifAvailable: true }, async lock => {
+      if (!lock) return;
+      ran = true;
+      await uploadPendingVideosNow();
+    });
+    if (!ran) setStatus("videoUploadStatus", "Videos are uploading in the background. Check again in a minute.", "ok");
+    return;
+  }
+  return uploadPendingVideosNow();
+}
+
+async function uploadPendingVideosNow() {
 
   if (videoUploadRunning) return;
   if (!state.sessionToken) return showLogin();
@@ -2786,6 +2826,7 @@ async function uploadPendingVideos() {
 
     let done = 0;
     let disabled = 0;
+    let tooLarge = 0;      /* v20.20 */
 
     for (let i = 0; i < ready.length; i++) {
 
@@ -2826,6 +2867,11 @@ async function uploadPendingVideos() {
         continue;
       }
 
+      if (result.outcome === "TOO_LARGE") {      /* v20.20 */
+        tooLarge++;
+        continue;
+      }
+
       done++;
     }
 
@@ -2842,8 +2888,9 @@ async function uploadPendingVideos() {
     setStatus(
       "videoUploadStatus",
       `Video upload complete. ${done} uploaded.` +
-      (waiting ? ` ${waiting} videos are waiting because their records could not be uploaded yet.` : ""),
-      "ok"
+      (waiting ? ` ${waiting} videos are waiting because their records could not be uploaded yet.` : "") +
+      (tooLarge ? ` ${tooLarge} video(s) were too large to upload and were removed from the list; their copies stay in the Download folder.` : ""),
+      tooLarge ? "error" : "ok"
     );
 
   } catch (e) {
@@ -6598,10 +6645,24 @@ async function downloadAssignedMaster(
 
 }
 
-async function importMasterIntoPending(
+/*
+ * v20.20: one import at a time on this phone, even with the app open in two
+ * windows; the active / spare master is read again first, so a second window
+ * can never clear the master that the first one just switched to.
+ */
+async function importMasterIntoPending(buffer, masterInfo) {
+  if (!(navigator.locks && navigator.locks.request)) return importMasterIntoPendingNow(buffer, masterInfo);
+  return navigator.locks.request("fieldwork-master-import", async () => {
+    await openMasterDB();
+    return importMasterIntoPendingNow(buffer, masterInfo);
+  });
+}
+
+async function importMasterIntoPendingNow(
   buffer,
   masterInfo
 ) {
+
 
   /*
    * v18.6: the Excel file is read in a background worker and its rows
@@ -10693,6 +10754,40 @@ async function downloadDisconnectionReportPdf(mode, fromDate, toDate) {
       didParseCell: d => { if (d.section === "body" && d.column.index === subs.length + 1) d.cell.styles.fontStyle = "bold"; }
     });
 
+    /* v20.21: user-wise summary, sorted by substation, then user name */
+    if (mode === "REPORT") {
+      const groups = {};
+      list.forEach(x => {
+        const k = x.sub + "\u0001" + (x.user || "—");
+        (groups[k] = groups[k] || { sub: x.sub, user: x.user || "—", rows: [] }).rows.push(x);
+      });
+      const uRow = (sub, user, rows) => {
+        const n = pred => rows.filter(pred).length;
+        const s = f => money0(rows.reduce((a, x) => a + (Number(f(x)) || 0), 0));
+        return [sub, user, rows.length, n(x => x.status === "DISCONNECTED"), n(x => x.status === "HOUSE LOCK AND DISCONNECTED"),
+          n(x => x.status === "TIME GIVEN FOR PAYMENT"), n(x => x.status === "PAID"), s(x => x.out), s(x => x.paid),
+          n(x => x.list === "Never paid"), n(x => x.list === "Long unpaid")];
+      };
+      const uBody = Object.values(groups)
+        .sort((a, b) => a.sub.localeCompare(b.sub) || a.user.localeCompare(b.user))
+        .map(g => uRow(g.sub, g.user, g.rows));
+      uBody.push(uRow("Total", "", list));
+      let uy = doc.lastAutoTable.finalY + 6;
+      if (uy > doc.internal.pageSize.getHeight() - (getReportSignature() ? 50 : 30)) { doc.addPage(); uy = 14; }
+      doc.setFontSize(9);
+      doc.text("User-wise summary", 10, uy);
+      doc.autoTable({
+        startY: uy + 2, margin: { left: 10, right: 10, bottom: getReportSignature() ? 28 : 10 },
+        head: [["Substation", "User Name", "Total visits", "Disconnected", "House lock and disconnected", "Time given", "Paid",
+          "Final outstanding", "Paid amount (reported by user)", "Never paid", "Long unpaid"]],
+        body: uBody, theme: "grid",
+        styles: { fontSize: 7.5, cellPadding: 1.3, lineColor: [120, 120, 120], lineWidth: 0.1, textColor: [0, 0, 0], halign: "right", valign: "middle" },
+        headStyles: { fillColor: [21, 101, 192], textColor: 255, halign: "center" },
+        columnStyles: { 0: { halign: "left", cellWidth: 34 }, 1: { halign: "left", cellWidth: 40 } },
+        didParseCell: d => { if (d.section === "body" && d.row.index === uBody.length - 1) d.cell.styles.fontStyle = "bold"; }
+      });
+    }
+
     let head, body, colStyles;
     if (mode === "REPORT") {
       head = ["S.No", "Date", "Substation", "User Name", "Account ID", "Consumer Name", "Father/Husband", "Address", "Supply Type", "Load",
@@ -12365,6 +12460,77 @@ if ($("defaulterListCard")) {
   $("defaulterListCard").addEventListener("input", later);
 }
 
+/* ---------- v20.20: videos upload in the background ----------
+ * The service worker (sw.js) uploads pending videos with Background Sync:
+ * it goes on after the app is closed or the phone is locked (Chrome on
+ * Android), and waits for internet when there is none.
+ */
+const BG_VIDEO_SYNC_TAG = "fieldwork-videos";
+const BG_SESSION_CACHE = "fieldwork-bg-session";
+
+function videoAutoMode() {
+  return "any";      /* v20.21: always on, any network (mobile data or Wi-Fi) */
+}
+function videoNetworkOk() {
+  const mode = videoAutoMode();
+  if (mode === "off") return false;
+  const c = navigator.connection;
+  return !(mode === "wifi" && c && c.type === "cellular");
+}
+
+/* The service worker cannot read the login, so it gets a copy (removed on logout). */
+async function saveBackgroundSession() {
+  try {
+    if (!("caches" in window)) return;
+    const cache = await caches.open(BG_SESSION_CACHE);
+    if (!state.sessionToken) { await cache.delete("./bg-session"); return; }
+    await cache.put("./bg-session", new Response(JSON.stringify({
+      token: state.sessionToken, user_id: state.userId, server: SERVER_URL, mode: videoAutoMode()
+    }), { headers: { "Content-Type": "application/json" } }));
+  } catch (e) {}
+}
+
+async function registerBackgroundVideoUpload() {
+  try {
+    if (videoAutoMode() === "off" || !state.sessionToken || !("serviceWorker" in navigator)) return;
+    const pending = await getPendingVideos();
+    if (!pending.length) return;
+    const reg = await navigator.serviceWorker.ready;
+    if (!reg.sync) return;                      /* this browser has no Background Sync */
+    await saveBackgroundSession();
+    await reg.sync.register(BG_VIDEO_SYNC_TAG);
+  } catch (e) {
+    console.warn("Background video upload not available", e);
+  }
+}
+
+if ($("videoAutoMode")) {
+  $("videoAutoMode").value = videoAutoMode();
+  $("videoAutoMode").addEventListener("change", () => {
+    try { localStorage.setItem("fieldworkVideoAutoMode", $("videoAutoMode").value); } catch (e) {}
+    saveBackgroundSession();
+    registerBackgroundVideoUpload();
+  });
+}
+
+/* Leaving the app (home button, screen off, other app): the background takes over. */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") registerBackgroundVideoUpload();
+});
+setTimeout(() => { if (state.sessionToken) { saveBackgroundSession(); registerBackgroundVideoUpload(); } }, 15000);
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", e => {
+    const m = e.data || {};
+    if (m.type !== "videos-bg") return;
+    refreshVideoUploadInfo();
+    const parts = [];
+    if (m.uploaded) parts.push(m.uploaded + (m.uploaded === 1 ? " video uploaded" : " videos uploaded") + " in the background.");
+    if (m.tooLarge) parts.push(m.tooLarge + " video(s) too large to upload; their copies stay in the Download folder.");
+    if (parts.length) showAppToast(parts.join(" ") + " (बैकग्राउंड अपलोड)");
+  });
+}
+
 /* ---------- 4. auto upload when online ---------- */
 const AUTO_UPLOAD_EVERY_MS = 3 * 60 * 1000;
 const AUTO_UPLOAD_PAUSE_MS = 20 * 60 * 1000;
@@ -12391,7 +12557,7 @@ async function autoUploadIfOnline() {
     const now = Date.now();
     const before = await autoUploadPendingCounts();
     const doRecords = before.records > 0 && now >= autoUploadPausedUntil.records;
-    const doVideos = before.videos > 0 && now >= autoUploadPausedUntil.videos;
+    const doVideos = before.videos > 0 && now >= autoUploadPausedUntil.videos && videoNetworkOk();      /* v20.20 */
     if (!doRecords && !doVideos) return;
 
     if (doRecords) await uploadPending();
@@ -13273,14 +13439,19 @@ async function applyMasterChangeFile(file, meta, onProgress) {
 async function backgroundMasterUpdate(remote) {
   state.masterQuiet = true;
   masterSyncLine("New Master Data is downloading in the background. You can keep working.");
+  const activeAtStart = state.activeMasterStore;      /* v20.20 */
   try {
     const buffer = await downloadAssignedMaster(remote);
     const count = await importMasterIntoPending(buffer, remote);
     masterNotice("");
     showAppToast("New Master Data loaded: " + count.toLocaleString("en-IN") + " consumers. (नया मास्टर डेटा)");
   } catch (e) {
-    /* free the half-imported copy; the current master stays in use */
-    try { await clearMasterConsumers(getInactiveMasterStore()); } catch (x) {}
+    /* free the half-imported copy; the current master stays in use
+       (v20.20: only when the master in use is still the same one) */
+    try {
+      await openMasterDB();
+      if (state.activeMasterStore === activeAtStart) await clearMasterConsumers(getInactiveMasterStore());
+    } catch (x) {}
     masterNotice("New monthly master could not be downloaded; current data still works, it will try again. " +
       "(पुराना डेटा चालू है)", "error");
     throw e;
@@ -14009,6 +14180,34 @@ v151InitMyCollection();
 initLanguageSwitch();
 init();
 requestPersistentStorage();
+setTimeout(showStorageHealth, 4000);      /* v20.20 */
+
+/*
+ * v20.20: Chrome can remove the app's offline data (Master Data, unsent
+ * records, videos) when the phone runs out of space, unless the storage is
+ * protected. Shown on the Master Data card.
+ */
+async function showStorageHealth() {
+  const box = $("storageHealth");
+  if (!box || !navigator.storage) return;
+  try {
+    const persisted = navigator.storage.persisted ? await navigator.storage.persisted() : false;
+    const est = navigator.storage.estimate ? await navigator.storage.estimate() : {};
+    const free = est.quota && est.usage !== undefined ? Math.max(0, est.quota - est.usage) : null;
+    const low = free !== null && free < 700 * 1024 * 1024;
+    const space = free === null ? "" : " Free space for the app: " + formatBytes(free) + (low ? " - very low, free some space." : ".");
+    box.textContent = persisted
+      ? "Phone storage: protected. Android will not remove the offline data." + space + "(फोन स्टोरेज सुरक्षित है।)"
+      : "Phone storage: not protected. If the phone runs low on space, Android can remove the offline Master Data and unsent entries. " +
+        "Install the app from the Chrome menu ⋮ → Install app or Add to Home screen, and keep free space." + space +
+        "(फोन स्टोरेज सुरक्षित नहीं है। ऐप इंस्टॉल करें और जगह खाली रखें।)";
+    box.className = "status " + (!persisted && low ? "error" : persisted ? "ok" : "warn");
+    if (typeof applyLanguage === "function") applyLanguage();
+    if (!persisted && low) {
+      showAppToast("Phone storage is almost full. Free some space, otherwise the offline Master Data can be removed. (फोन में जगह खाली करें)", 10000);
+    }
+  } catch (e) {}
+}
 
 
 
