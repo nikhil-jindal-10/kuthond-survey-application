@@ -10417,6 +10417,8 @@ function renderDashboardSummaries(result) {
     substation: $("dashSubstationFilter") ? $("dashSubstationFilter").value : ""
   };
   Object.keys(dashRowsCache).forEach(k => delete dashRowsCache[k]);
+  dashRepCache = null;                       /* v20.24: new dashboard, new entries */
+  setTimeout(prefetchDashReport, 0);
   const by = result.summary_by_substation || {};
   const n = v => Math.round(Number(v) || 0).toLocaleString("en-IN");
   const rs = v => "₹" + Math.round(Number(v) || 0).toLocaleString("en-IN");
@@ -10627,6 +10629,48 @@ function dashReportDates() {
   if ($("dashRepTo") && !$("dashRepTo").value) $("dashRepTo").value = ($("dashToDate") && $("dashToDate").value) || iso;
 }
 
+/*
+ * v20.24: the report and the lists use the dates of the loaded dashboard (From / To
+ * at the top). Their entries come from the server once per dates + substations,
+ * already in the background when the dashboard loads, and are kept 10 minutes,
+ * so the five DOWNLOAD buttons do not each wait for the server.
+ */
+function dashListDates() {
+  const d = new Date(), p = x => String(x).padStart(2, "0");
+  const today = d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+  const f = dashLastFilters || {};
+  return {
+    from: f.from_date || ($("dashFromDate") && $("dashFromDate").value) || today,
+    to: f.to_date || ($("dashToDate") && $("dashToDate").value) || today
+  };
+}
+const DASH_REP_KEEP_MS = 10 * 60 * 1000;
+let dashRepCache = null;          /* { key, at, res } or { key, at, pending } */
+function dashRepCached(from, to, sub) {
+  const c = dashRepCache;
+  return c && c.key === from + "|" + to + "|" + sub && Date.now() - c.at < DASH_REP_KEEP_MS ? c : null;
+}
+async function dashReportRows(from, to, sub) {
+  const key = from + "|" + to + "|" + sub;
+  const c = dashRepCached(from, to, sub);
+  if (c) return c.pending ? await c.pending : c.res;
+  const pending = adminRequest("disconnection_report", { from_date: from, to_date: to, substation: sub });
+  dashRepCache = { key: key, at: Date.now(), pending: pending };
+  try {
+    const res = await pending;
+    if (dashRepCache && dashRepCache.key === key) dashRepCache = res && res.success ? { key: key, at: Date.now(), res: res } : null;
+    return res;
+  } catch (e) {
+    if (dashRepCache && dashRepCache.key === key) dashRepCache = null;
+    throw e;
+  }
+}
+function prefetchDashReport() {
+  if (!navigator.onLine || !state.sessionToken) return;
+  const d = dashListDates();
+  dashReportRows(d.from, d.to, $("dashSubstationFilter") ? $("dashSubstationFilter").value : "").catch(() => {});
+}
+
 let dashReportFile = null;
 async function shareDisconnectionReport() {
   if (!dashReportFile) return;
@@ -10641,20 +10685,19 @@ async function shareDisconnectionReport() {
    PAID_NOT_PAID (paid at visit, no payment since the visit) */
 async function downloadDisconnectionReportPdf(mode, fromDate, toDate) {
   mode = typeof mode === "string" ? mode : "REPORT";
-  dashReportDates();
-  const from = fromDate || $("dashRepFrom").value, to = toDate || $("dashRepTo").value;
-  if (!from || !to || from > to) return setStatus("dashRepStatus", "Choose the report dates (from – to).", "error");
+  const dd = dashListDates();      /* v20.24 */
+  const from = fromDate || dd.from, to = toDate || dd.to;
+  if (!from || !to || from > to) return setStatus("dashRepStatus", "Choose the dashboard dates (From / To) at the top.", "error");
   if (!window.jspdf || !window.jspdf.jsPDF || !window.jspdf.jsPDF.API.autoTable) {
     return setStatus("dashRepStatus", "PDF library is not loaded. Please reload the app.", "error");
   }
-  if (!navigator.onLine) return setStatus("dashRepStatus", "No internet. The report needs internet.", "error");
+  const repSub = $("dashSubstationFilter") ? $("dashSubstationFilter").value : "";
+  if (!dashRepCached(from, to, repSub) && !navigator.onLine) return setStatus("dashRepStatus", "No internet. The report needs internet.", "error");
   if (mode !== "REPORT" && !state.masterReady) return setStatus("dashRepStatus", "Master Data is still loading. Please wait.", "error");
   setStatus("dashRepStatus", "");
-  showGlobalLoading("Preparing the report…", "Reading the disconnection entries.");
+  showGlobalLoading("Preparing the report…", dashRepCached(from, to, repSub) ? "Making the PDF." : "Reading the disconnection entries.");
   try {
-    const res = await adminRequest("disconnection_report", {
-      from_date: from, to_date: to, substation: $("dashSubstationFilter") ? $("dashSubstationFilter").value : ""
-    });
+    const res = await dashReportRows(from, to, repSub);      /* v20.24: once, then kept */
     if (!res || !res.success) throw new Error((res && res.message) || "Update Apps Script (Code.gs) for the report.");
     const rows = res.rows || [];
 
@@ -10863,7 +10906,9 @@ if ($("dashRepPdfBtn")) {
     const today = d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
     downloadDisconnectionReportPdf("REPORT", today, today);
   });
-  ["dashRepFrom", "dashRepTo"].forEach(id => $(id).addEventListener("focus", dashReportDates, { once: true }));
+
+
+
 }
 
 
