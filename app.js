@@ -5133,6 +5133,8 @@ async function ensureMasterData() {
 
     closeMasterSetup();
 
+    setTimeout(checkMasterIntegrity, 10000);      /* v20.23 */
+
     return;
 
   }
@@ -13435,6 +13437,53 @@ async function applyMasterChangeFile(file, meta, onProgress) {
   return changed;
 }
 
+/*
+ * v20.23: the Master Data on this phone must be complete. It is not when
+ *  - it was "recovered" from the spare copy (that copy can be a half-finished
+ *    download, e.g. after the browser crashed), or
+ *  - it has fewer consumers than the master file had when it was loaded.
+ * Then the assigned master is downloaded again in the background (the phone
+ * keeps working), and all daily updates are loaded on top of it.
+ */
+let masterIntegrityRunning = false;
+
+async function checkMasterIntegrity() {
+  if (masterIntegrityRunning || !state.masterReady || !state.masterDb || !state.sessionToken) return;
+  const meta = getLocalMasterMeta() || {};
+  const expected = Number(meta.consumer_count) || 0;
+  let have = state.masterCount || 0;
+  try { have = await countMasterConsumers(); state.masterCount = have; } catch (e) {}
+  const recovered = String(meta.master_file_id || "") === "recovered";
+  const short = expected > 0 && have < expected * 0.98;
+  if (!recovered && !short) return;
+
+  console.warn("Master Data incomplete:", { have, expected, recovered });
+  const why = "Master Data on this phone is incomplete (" + have.toLocaleString("en-IN") + " consumers" +
+    (expected && !recovered ? " of " + expected.toLocaleString("en-IN") : "") + ").";
+  if (!navigator.onLine) {
+    masterNotice(why + " It will download again when there is internet. (मास्टर डेटा अधूरा है)", "error");
+    return;
+  }
+  if (masterSyncRunning) { setTimeout(checkMasterIntegrity, 60000); return; }
+
+  masterIntegrityRunning = true;
+  masterSyncRunning = true;                 /* no daily update while the master is replaced */
+  try {
+    masterNotice(why + " Downloading it again in the background; you can keep working. (मास्टर डेटा फिर से डाउनलोड हो रहा है)", "error");
+    const remote = await checkAssignedMaster();
+    await backgroundMasterUpdate(remote);
+  } catch (e) {
+    console.error("Master re-download failed", e);
+    masterNotice(why + " Download failed; it will try again next time the app opens. (" + ((e && e.message) || e) + ")", "error");
+    return;
+  } finally {
+    masterSyncRunning = false;
+    masterIntegrityRunning = false;
+  }
+  /* the new copy starts at update 0: load all daily updates now */
+  try { await syncMasterUpdates(true); } catch (e) {}
+}
+
 /* New monthly master without the setup screen: imported into the spare store, then switched. */
 async function backgroundMasterUpdate(remote) {
   state.masterQuiet = true;
@@ -14181,6 +14230,59 @@ initLanguageSwitch();
 init();
 requestPersistentStorage();
 setTimeout(showStorageHealth, 4000);      /* v20.20 */
+
+/*
+ * v20.22: Dashboard and Progress sections open / close with a tap on their
+ * heading. Each phone remembers which ones are closed. EXPAND ALL / COLLAPSE ALL
+ * at the top of the page.
+ */
+(function setupFoldingSections() {
+  const PAGES = [["dashboardCard", ".dashboard-section"], ["progressCard", ".pg-section"]];
+  const KEY = "fieldworkClosedSections";
+  let closed = {};
+  try { closed = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { closed = {}; }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(closed)); } catch (e) {} };
+
+  PAGES.forEach(([cardId, selector]) => {
+    const card = $(cardId);
+    if (!card) return;
+    const sections = Array.from(card.querySelectorAll(selector)).filter(s => s.querySelector(":scope > h3"));
+    if (!sections.length) return;
+
+    const setOpen = (sec, open, remember) => {
+      sec.classList.toggle("sec-closed", !open);
+      const h = sec.querySelector(":scope > h3");
+      h.setAttribute("aria-expanded", open ? "true" : "false");
+      if (remember) { if (open) delete closed[sec.dataset.fold]; else closed[sec.dataset.fold] = 1; save(); }
+    };
+
+    sections.forEach((sec, i) => {
+      sec.dataset.fold = cardId + ":" + i;
+      sec.classList.add("sec-fold");
+      const h = sec.querySelector(":scope > h3");
+      h.classList.add("sec-head");
+      h.setAttribute("role", "button");
+      h.setAttribute("tabindex", "0");
+      setOpen(sec, !closed[sec.dataset.fold], false);
+      const toggle = e => {
+        if (e.target.closest("button, input, select, a")) return;      /* e.g. REFRESH in the heading */
+        setOpen(sec, sec.classList.contains("sec-closed"), true);
+      };
+      h.addEventListener("click", toggle);
+      h.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(e); } });
+    });
+
+    const bar = document.createElement("div");
+    bar.className = "sec-all";
+    bar.innerHTML = '<button type="button" class="small-btn">EXPAND ALL(सभी खोलें)</button>' +
+      '<button type="button" class="small-btn">COLLAPSE ALL(सभी बंद करें)</button>';
+    sections[0].parentNode.insertBefore(bar, sections[0]);
+    const [openAll, closeAll] = bar.querySelectorAll("button");
+    openAll.addEventListener("click", () => sections.forEach(s => setOpen(s, true, true)));
+    closeAll.addEventListener("click", () => sections.forEach(s => setOpen(s, false, true)));
+  });
+  if (typeof applyLanguage === "function") applyLanguage();
+})();
 
 /*
  * v20.20: Chrome can remove the app's offline data (Master Data, unsent
