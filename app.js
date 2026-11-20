@@ -10638,10 +10638,11 @@ function dashReportDates() {
 function dashListDates() {
   const d = new Date(), p = x => String(x).padStart(2, "0");
   const today = d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
-  const f = dashLastFilters || {};
+  /* v20.26: exactly the dates of the loaded dashboard; blank = all dates (as the dashboard) */
+  if (dashLastFilters) return { from: dashLastFilters.from_date || "", to: dashLastFilters.to_date || "" };
   return {
-    from: f.from_date || ($("dashFromDate") && $("dashFromDate").value) || today,
-    to: f.to_date || ($("dashToDate") && $("dashToDate").value) || today
+    from: ($("dashFromDate") && $("dashFromDate").value) || "",
+    to: ($("dashToDate") && $("dashToDate").value) || ""
   };
 }
 const DASH_REP_KEEP_MS = 10 * 60 * 1000;
@@ -10665,6 +10666,7 @@ async function dashReportRows(from, to, sub) {
     throw e;
   }
 }
+function dmyDate(v) { return formatListDate(v); }      /* v20.26 */
 function prefetchDashReport() {
   if (!navigator.onLine || !state.sessionToken) return;
   const d = dashListDates();
@@ -10687,7 +10689,9 @@ async function downloadDisconnectionReportPdf(mode, fromDate, toDate) {
   mode = typeof mode === "string" ? mode : "REPORT";
   const dd = dashListDates();      /* v20.24 */
   const from = fromDate || dd.from, to = toDate || dd.to;
-  if (!from || !to || from > to) return setStatus("dashRepStatus", "Choose the dashboard dates (From / To) at the top.", "error");
+  if (from && to && from > to) return setStatus("dashRepStatus", "The From date is after the To date. Correct the dashboard dates at the top.", "error");
+  /* v20.26: blank = all dates */
+  const periodText = !from && !to ? "All dates" : (from ? dmyDate(from) : "start") + " to " + (to ? dmyDate(to) : "today");
   if (!window.jspdf || !window.jspdf.jsPDF || !window.jspdf.jsPDF.API.autoTable) {
     return setStatus("dashRepStatus", "PDF library is not loaded. Please reload the app.", "error");
   }
@@ -10758,7 +10762,7 @@ async function downloadDisconnectionReportPdf(mode, fromDate, toDate) {
     doc.text(TITLE, 10, 12);
     doc.setFontSize(8.5);
     const subFilter = $("dashSubstationFilter") && $("dashSubstationFilter").value.split("||").join(", ");
-    doc.text("Period: " + dmy(from) + " to " + dmy(to) + (subFilter ? "    Substation: " + subFilter : "") +
+    doc.text("Period: " + periodText + (subFilter ? "    Substation: " + subFilter : "") +
       (mode === "REPORT" ? "" : "    Payments up to: " + ((getLocalMasterMeta() || {}).report_date || "data on this phone")) +
       "    On: " + shareDateText(new Date().toISOString()), 10, 18);
 
@@ -10882,7 +10886,7 @@ async function downloadDisconnectionReportPdf(mode, fromDate, toDate) {
 
     const fileTitle = { REPORT: "Disconnection_Report_", TG_NOT_PAID: "Time_Given_Not_Yet_Paid_", PAID_NOT_PAID: "Paid_At_Visit_Not_Actually_Paid_",
       DISC_NOT_PAID: "Disconnected_Not_Yet_Paid_" }[mode];
-    const name = fileTitle + from + "_to_" + to + ".pdf";
+    const name = fileTitle + (from || to ? (from || "start") + "_to_" + (to || "today") : "All_dates") + ".pdf";
     addReportSignature(doc);                                                   /* v20.15 */
     doc.save(name);
     dashReportFile = new File([doc.output("blob")], name, { type: "application/pdf" });
