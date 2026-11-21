@@ -13571,6 +13571,17 @@ async function syncMasterUpdates(force, fromButton) {
   try {
     for (let round = 0; round < 2; round++) {
       let meta = Object.assign({}, getLocalMasterMeta() || {});
+      /*
+       * v20.27: the update number must belong to THIS master copy. If a new copy
+       * was loaded while updates were being loaded (or the number was saved by an
+       * older app version), the updates are loaded again from the start.
+       */
+      if ((Number(meta.updates_seq) || 0) > 0 && String(meta.updates_for || "") !== String(meta.imported_at || "")) {
+        console.warn("Daily updates do not belong to this master copy; loading them again.", meta.updates_for, meta.imported_at);
+        meta = Object.assign({}, meta, { updates_seq: 0, updates_for: String(meta.imported_at || "") });
+        await saveMasterMeta(meta);
+      }
+      const copyAtStart = String(meta.imported_at || "");
       masterNotice("Checking for daily master updates… (दैनिक अपडेट जाँच)", "info");
       const res = await serverPost("master_updates", {
         base_id: meta.base_id || "",
@@ -13604,6 +13615,7 @@ async function syncMasterUpdates(force, fromButton) {
       for (let n = 0; n < files.length; n++) {
         const d = files[n];
         if (Number(d.from_seq) > (Number(meta.updates_seq) || 0)) break;   /* gap: next time */
+        if (String((getLocalMasterMeta() || {}).imported_at || "") !== copyAtStart) break;   /* v20.27: new copy loaded meanwhile */
         const which = "daily update " + d.seq + (files.length > 1 ? " (" + (n + 1) + " of " + files.length + ")" : "");
         masterNotice("Downloading " + which + (d.size ? ", " + formatBytes(d.size) : "") + "… (दैनिक अपडेट डाउनलोड)", "info");
         const r = await fetch(d.url);
@@ -13614,7 +13626,9 @@ async function syncMasterUpdates(force, fromButton) {
             done.toLocaleString("en-IN") + " of " + all.toLocaleString("en-IN") +
             " consumers) — keep the app open. (ऐप खुला रखें)", "warn");
         });
+        if (String((getLocalMasterMeta() || {}).imported_at || "") !== copyAtStart) break;   /* v20.27 */
         meta = Object.assign({}, getLocalMasterMeta(), {
+          updates_for: copyAtStart,                                          /* v20.27 */
           updates_seq: Number(file.seq) || 0,
           report_date: file.report_date || meta.report_date || "",
           billing_month: file.billing_month || meta.billing_month || "",
